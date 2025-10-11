@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { processHighClaimants } from '@repo/lib/formulas/high-claimants';
+import { processHighClaimants } from '@medical-reporting/lib/formulas/high-claimants';
 
 const prisma = new PrismaClient();
 

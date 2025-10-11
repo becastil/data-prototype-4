@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPdfExporter, PdfExporter } from '@repo/lib/pdf/export';
+import { getPdfExporter, PdfExporter } from '@medical-reporting/lib/pdf/export';
 
 /**
  * POST /api/export/pdf

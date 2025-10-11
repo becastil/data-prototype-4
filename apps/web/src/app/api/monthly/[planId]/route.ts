@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { calculateMonthlyColumns } from '@repo/lib/formulas/monthly-columns';
-import { calculatePepm } from '@repo/lib/formulas/pepm';
+import { calculateMonthlyColumns } from '@medical-reporting/lib/formulas/monthly-columns';
+import { calculatePepm } from '@medical-reporting/lib/formulas/pepm';
 
 const prisma = new PrismaClient();
 

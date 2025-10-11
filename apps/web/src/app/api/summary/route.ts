@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { calculateCeSummary } from '@repo/lib/formulas/ce-summary';
+import { calculateCeSummary } from '@medical-reporting/lib/formulas/ce-summary';
 
 const prisma = new PrismaClient();
 
