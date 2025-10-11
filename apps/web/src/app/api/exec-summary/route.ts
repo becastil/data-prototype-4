@@ -32,28 +32,28 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // Get "All Plans" monthly data
-    const allPlansStats = snapshots.flatMap(s =>
-      s.planStats.filter(ps => ps.plan.type === 'ALL_PLANS')
-    );
+    // Get "All Plans" monthly data and transform
+    const monthlyResults = snapshots.flatMap(snapshot => {
+      const allPlansStat = snapshot.planStats.find(ps => ps.plan.type === 'ALL_PLANS');
+      if (!allPlansStat) return [];
 
-    // Transform to MonthlyColumnsResult format
-    const monthlyResults = allPlansStats.map(stat => ({
-      month: stat.snapshot.monthDate.toISOString().slice(0, 7),
-      totalSubscribers: stat.totalSubscribers,
-      medicalPaid: Number(stat.medicalPaid),
-      rxPaid: Number(stat.rxPaid),
-      totalPaid: Number(stat.medicalPaid) + Number(stat.rxPaid),
-      specStopLossReimb: Number(stat.specStopLossReimb),
-      estRxRebates: Number(stat.estRxRebates),
-      netPaid: Number(stat.medicalPaid) + Number(stat.rxPaid) + Number(stat.specStopLossReimb) + Number(stat.estRxRebates),
-      adminFees: Number(stat.adminFees),
-      stopLossFees: Number(stat.stopLossFees),
-      totalCost: 0, // Calculated below
-      budgetedPremium: Number(stat.budgetedPremium),
-      surplusDeficit: 0,
-      percentOfBudget: 0
-    }));
+      return [{
+        month: snapshot.monthDate.toISOString().slice(0, 7),
+        totalSubscribers: allPlansStat.totalSubscribers,
+        medicalPaid: Number(allPlansStat.medicalPaid),
+        rxPaid: Number(allPlansStat.rxPaid),
+        totalPaid: Number(allPlansStat.medicalPaid) + Number(allPlansStat.rxPaid),
+        specStopLossReimb: Number(allPlansStat.specStopLossReimb),
+        estRxRebates: Number(allPlansStat.estRxRebates),
+        netPaid: Number(allPlansStat.medicalPaid) + Number(allPlansStat.rxPaid) + Number(allPlansStat.specStopLossReimb) + Number(allPlansStat.estRxRebates),
+        adminFees: Number(allPlansStat.adminFees),
+        stopLossFees: Number(allPlansStat.stopLossFees),
+        totalCost: 0, // Calculated below
+        budgetedPremium: Number(allPlansStat.budgetedPremium),
+        surplusDeficit: 0,
+        percentOfBudget: 0
+      }];
+    });
 
     // Calculate totals
     monthlyResults.forEach(m => {

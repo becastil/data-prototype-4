@@ -176,22 +176,3 @@ export function generateExecutiveObservation(result: ExecutiveYtdResult): string
 
   return observations.join(' ');
 }
-
-/**
- * Format currency for display
- */
-export function formatCurrency(value: number, decimals: number = 0): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals
-  }).format(value);
-}
-
-/**
- * Format percent for display
- */
-export function formatPercent(value: number, decimals: number = 1): string {
-  return `${(value * 100).toFixed(decimals)}%`;
-}
