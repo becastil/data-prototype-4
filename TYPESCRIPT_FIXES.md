@@ -118,10 +118,63 @@ export function formatPercent(
 
 ---
 
+### 3. TypeScript Error: Buffer Type Mismatch ✅
+
+**File**: `apps/web/src/app/api/export/pdf/route.ts:65`
+
+**Error**:
+```
+Type error: Argument of type 'Buffer<ArrayBufferLike> | undefined' is not assignable
+to parameter of type 'BodyInit | null | undefined'.
+```
+
+**Root Cause**:
+The `result.buffer` could be `undefined`, but we were passing it to `NextResponse` without checking.
+
+**Fix Applied**:
+Added a check for `result.buffer` before returning the response:
+
+```typescript
+// Before: Could pass undefined buffer to NextResponse
+if (!result.success) {
+  return NextResponse.json(
+    { error: result.error || 'PDF generation failed' },
+    { status: 500 }
+  );
+}
+return new NextResponse(result.buffer, { // ❌ result.buffer might be undefined
+  // ...
+});
+
+// After: Check buffer exists before using
+if (!result.success || !result.buffer) { // ✅ Guard against undefined
+  return NextResponse.json(
+    { error: result.error || 'PDF generation failed' },
+    { status: 500 }
+  );
+}
+return new NextResponse(result.buffer, { // ✅ TypeScript knows buffer is defined
+  status: 200,
+  headers: {
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': `attachment; filename="${filename}"`,
+    'Content-Length': result.buffer.length.toString() // ✅ Safe to use .length
+  }
+});
+```
+
+**Why This Works**:
+- TypeScript flow analysis: After the `!result.buffer` check, TypeScript knows `result.buffer` is defined
+- Better error handling: Returns proper error if buffer generation fails
+- Type safety: No more `undefined` in the success path
+
+---
+
 ## Summary
 
 ✅ **Fixed**: TypeScript compilation error in exec-summary API route
 ✅ **Fixed**: Conflicting star exports warning in lib package
+✅ **Fixed**: Buffer type mismatch in PDF export route
 ✅ **Ready**: Build should now complete successfully
 
 ## Next Steps
@@ -133,6 +186,7 @@ git commit -m "fix: Resolve TypeScript errors and conflicting exports
 
 - Fix exec-summary route to use snapshot.monthDate correctly
 - Remove duplicate formatCurrency/formatPercent from executive.ts
+- Fix PDF export buffer type checking
 - Keep single source of truth in utils.ts for formatting functions
 
 Resolves: TypeScript compilation errors in Render build"
@@ -154,5 +208,6 @@ git push origin main
 **Files Modified**:
 1. `apps/web/src/app/api/exec-summary/route.ts` - Fixed snapshot access
 2. `packages/lib/src/formulas/executive.ts` - Removed duplicate exports
+3. `apps/web/src/app/api/export/pdf/route.ts` - Fixed buffer type checking
 
 **Build Status**: Ready for deployment ✅

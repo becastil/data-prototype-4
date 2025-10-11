@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       pages: pagesToExport
     });
 
-    if (!result.success) {
+    if (!result.success || !result.buffer) {
       return NextResponse.json(
         { error: result.error || 'PDF generation failed' },
         { status: 500 }
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="${filename}"`,
-        'Content-Length': result.buffer?.length.toString() || '0'
+        'Content-Length': result.buffer.length.toString()
       }
     });
 
