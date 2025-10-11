@@ -1,0 +1,72 @@
+# Render.com Configuration
+# Blueprint for deploying Medical Reporting Platform
+
+services:
+  # Web Service - Next.js Application
+  - type: web
+    name: medical-reporting-web
+    env: node
+    region: oregon
+    plan: starter
+
+    # Root directory is the monorepo root
+    rootDir: .
+
+    # Build configuration
+    buildCommand: |
+      npm ci
+      cd apps/web
+      npx prisma generate
+      npm run build
+
+    # Start command
+    startCommand: |
+      cd apps/web
+      npm start
+
+    # Environment variables
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      - key: PORT
+        value: 3000
+
+      - key: DATABASE_URL
+        sync: false
+        # Set in Render dashboard
+
+      - key: BASE_URL
+        sync: false
+        # Will be auto-set by Render
+
+      # Puppeteer configuration
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: false
+
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /usr/bin/chromium
+
+    # Health check
+    healthCheckPath: /api/health
+
+    # Auto-deploy on push
+    autoDeploy: true
+
+    # Scaling
+    numInstances: 1
+
+    # Build filter (optional)
+    buildFilter:
+      paths:
+        - apps/web/**
+        - packages/**
+
+  # PostgreSQL Database
+  - type: pgsql
+    name: medical-reporting-db
+    region: oregon
+    plan: starter
+    databaseName: medreporting
+    databaseUser: medreporting
+    ipAllowList: []  # Empty allows all IPs (adjust for production)
