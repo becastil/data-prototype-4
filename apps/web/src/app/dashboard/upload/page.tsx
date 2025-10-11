@@ -34,6 +34,11 @@ export default function UploadPage() {
   const [validationResults, setValidationResults] = useState<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  const handleDownloadTemplate = () => {
+    // Open the template API route in a new window to trigger download
+    window.open(`/api/template?type=${selectedFileType}`, '_blank');
+  };
+
   const handleFileUpload = async (file: File) => {
     setUploadedFile(file);
     setIsProcessing(true);
@@ -183,7 +188,10 @@ export default function UploadPage() {
                 <p className="text-sm text-slate-300">
                   Download the CSV template for {templates.find(t => t.id === selectedFileType)?.name}
                 </p>
-                <button className="mt-2 text-sm text-accent-info hover:underline">
+                <button
+                  onClick={handleDownloadTemplate}
+                  className="mt-2 text-sm text-accent-info hover:underline"
+                >
                   Download Template →
                 </button>
               </div>
