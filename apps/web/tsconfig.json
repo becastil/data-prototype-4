@@ -22,7 +22,9 @@
     "paths": {
       "@/*": ["./src/*"],
       "@/ui": ["../../packages/ui/src"],
-      "@/lib": ["../../packages/lib/src"]
+      "@/lib": ["../../packages/lib/src"],
+      "@medical-reporting/lib/*": ["../../packages/lib/src/*"],
+      "@medical-reporting/ui/*": ["../../packages/ui/src/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

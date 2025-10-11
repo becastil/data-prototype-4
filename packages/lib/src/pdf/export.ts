@@ -101,7 +101,7 @@ export class PdfExporter {
         }
 
         // Additional wait for charts to render
-        await page.waitForTimeout(1000);
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
         // Generate PDF for this page
         const pdf = await page.pdf({
@@ -174,7 +174,7 @@ export class PdfExporter {
       timeout: 10000
     });
 
-    await page.waitForTimeout(1000);
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     const pdf = await page.pdf({
       format: 'Letter',

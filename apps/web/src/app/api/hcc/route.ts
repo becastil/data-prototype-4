@@ -61,12 +61,10 @@ export async function GET(request: NextRequest) {
     // Convert to format expected by formula engine
     const claimantInputs = claimants.map(c => ({
       claimantKey: c.claimantKey,
-      planId: c.planId,
       planName: c.plan.name,
-      totalPaid: Number(c.totalPaid),
-      medicalPaid: Number(c.medicalPaid),
-      rxPaid: Number(c.rxPaid),
-      status: c.status
+      status: c.status,
+      medPaid: Number(c.medPaid),
+      rxPaid: Number(c.rxPaid)
     }));
 
     // Process with formula engine
@@ -75,12 +73,12 @@ export async function GET(request: NextRequest) {
     // Filter by minimum percentage threshold
     const qualifyingThreshold = islThreshold * minPercentThreshold;
     const qualifyingClaimants = result.claimants.filter(
-      c => c.totalPaid >= qualifyingThreshold
+      (c: any) => c.totalPaid >= qualifyingThreshold
     );
 
     // Recalculate summary for qualifying claimants only
     const summary = qualifyingClaimants.reduce(
-      (acc, c) => ({
+      (acc: any, c: any) => ({
         count: acc.count + 1,
         totalPaid: acc.totalPaid + c.totalPaid,
         employerShare: acc.employerShare + c.employerShare,
@@ -159,16 +157,18 @@ export async function POST(request: NextRequest) {
 
     // If notes provided, create an observation note
     if (notes) {
-      await prisma.observationNote.create({
-        data: {
-          clientId: claimant.clientId,
-          planYearId: claimant.planYearId,
-          entity: 'HIGH_CLAIMANT',
-          entityId: claimant.id,
-          note: notes,
-          createdBy: 'system' // TODO: Replace with actual user ID from auth
-        }
-      });
+      // Get first user for note author (temporary solution)
+      const firstUser = await prisma.user.findFirst();
+      if (firstUser) {
+        await prisma.observationNote.create({
+          data: {
+            clientId: claimant.clientId,
+            planYearId: claimant.planYearId,
+            text: `High Claimant ${claimant.claimantKey}: ${notes}`,
+            authorId: firstUser.id
+          }
+        });
+      }
     }
 
     return NextResponse.json({

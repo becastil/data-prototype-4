@@ -83,7 +83,13 @@ export async function GET(request: NextRequest) {
       );
 
       // Calculate A-N columns
-      const columns = calculateMonthlyColumns(aggregated);
+      const monthData = {
+        ...aggregated,
+        month: snapshot.monthDate.toISOString().substring(0, 7),
+        planId: 'all-plans',
+        planName: 'All Plans'
+      };
+      const columns = calculateMonthlyColumns(monthData);
 
       return {
         monthDate: snapshot.monthDate,
@@ -99,12 +105,14 @@ export async function GET(request: NextRequest) {
     const medicalPepm = {
       current: current12Months.length >= 12 ? calculatePepm({
         months: current12Months.map(m => ({
+          month: m.monthDate.toISOString().substring(0, 7),
           subscribers: m.totalSubscribers,
           metric: m.medicalPaid
         }))
       }) : null,
       prior: prior12Months.length >= 12 ? calculatePepm({
         months: prior12Months.map(m => ({
+          month: m.monthDate.toISOString().substring(0, 7),
           subscribers: m.totalSubscribers,
           metric: m.medicalPaid
         }))
@@ -114,12 +122,14 @@ export async function GET(request: NextRequest) {
     const rxPepm = {
       current: current12Months.length >= 12 ? calculatePepm({
         months: current12Months.map(m => ({
+          month: m.monthDate.toISOString().substring(0, 7),
           subscribers: m.totalSubscribers,
           metric: m.rxPaid
         }))
       }) : null,
       prior: prior12Months.length >= 12 ? calculatePepm({
         months: prior12Months.map(m => ({
+          month: m.monthDate.toISOString().substring(0, 7),
           subscribers: m.totalSubscribers,
           metric: m.rxPaid
         }))
@@ -129,12 +139,14 @@ export async function GET(request: NextRequest) {
     const totalPepm = {
       current: current12Months.length >= 12 ? calculatePepm({
         months: current12Months.map(m => ({
+          month: m.monthDate.toISOString().substring(0, 7),
           subscribers: m.totalSubscribers,
           metric: m.medicalPaid + m.rxPaid
         }))
       }) : null,
       prior: prior12Months.length >= 12 ? calculatePepm({
         months: prior12Months.map(m => ({
+          month: m.monthDate.toISOString().substring(0, 7),
           subscribers: m.totalSubscribers,
           metric: m.medicalPaid + m.rxPaid
         }))

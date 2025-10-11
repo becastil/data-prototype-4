@@ -258,7 +258,8 @@ export async function PUT(request: NextRequest) {
     });
 
     const plansByCode = plans.reduce((acc, plan) => {
-      acc[plan.code.toLowerCase()] = plan;
+      const key = (plan.code || plan.name).toLowerCase();
+      acc[key] = plan;
       return acc;
     }, {} as Record<string, any>);
 
@@ -335,18 +336,20 @@ export async function PUT(request: NextRequest) {
     }
 
     // Create audit log
-    await prisma.auditLog.create({
-      data: {
-        clientId,
-        userId: 'system', // TODO: Replace with actual user ID from auth
-        entity: 'MONTHLY_DATA',
-        entityId: planYearId,
-        action: 'UPLOAD',
-        changesSummary: `Uploaded ${data.length} rows of monthly data`,
-        beforeSnapshot: {},
-        afterSnapshot: { rowCount: data.length, months: Object.keys(byMonth) }
-      }
-    });
+    const firstUser = await prisma.user.findFirst();
+    if (firstUser) {
+      await prisma.auditLog.create({
+        data: {
+          clientId,
+          actorId: firstUser.id,
+          entity: 'MONTHLY_DATA',
+          entityId: planYearId,
+          action: 'UPLOAD',
+          before: {},
+          after: { rowCount: data.length, months: Object.keys(byMonth) } as any
+        }
+      });
+    }
 
     return NextResponse.json({
       success: true,

@@ -41,6 +41,13 @@ const nextConfig = {
         tls: false
       };
     }
+
+    // Add webpack aliases for monorepo packages
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@medical-reporting/lib': require('path').resolve(__dirname, '../../packages/lib/src')
+    };
+
     return config;
   }
 };

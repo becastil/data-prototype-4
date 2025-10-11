@@ -79,6 +79,9 @@ export async function GET(
         const stat = snapshot.planStats[0];
 
         const planData = {
+          month: snapshot.monthDate.toISOString().substring(0, 7),
+          planId: plan.id,
+          planName: plan.name,
           totalSubscribers: stat.totalSubscribers,
           medicalPaid: Number(stat.medicalPaid),
           rxPaid: Number(stat.rxPaid),
@@ -106,12 +109,14 @@ export async function GET(
     const medicalPepm = {
       current: current12Months.length >= 12 ? calculatePepm({
         months: current12Months.map(m => ({
+          month: m.month,
           subscribers: m.totalSubscribers,
           metric: m.medicalPaid
         }))
       }) : null,
       prior: prior12Months.length >= 12 ? calculatePepm({
         months: prior12Months.map(m => ({
+          month: m.month,
           subscribers: m.totalSubscribers,
           metric: m.medicalPaid
         }))
@@ -121,12 +126,14 @@ export async function GET(
     const rxPepm = {
       current: current12Months.length >= 12 ? calculatePepm({
         months: current12Months.map(m => ({
+          month: m.month,
           subscribers: m.totalSubscribers,
           metric: m.rxPaid
         }))
       }) : null,
       prior: prior12Months.length >= 12 ? calculatePepm({
         months: prior12Months.map(m => ({
+          month: m.month,
           subscribers: m.totalSubscribers,
           metric: m.rxPaid
         }))
@@ -136,12 +143,14 @@ export async function GET(
     const totalPepm = {
       current: current12Months.length >= 12 ? calculatePepm({
         months: current12Months.map(m => ({
+          month: m.month,
           subscribers: m.totalSubscribers,
           metric: m.medicalPaid + m.rxPaid
         }))
       }) : null,
       prior: prior12Months.length >= 12 ? calculatePepm({
         months: prior12Months.map(m => ({
+          month: m.month,
           subscribers: m.totalSubscribers,
           metric: m.medicalPaid + m.rxPaid
         }))
@@ -173,7 +182,7 @@ export async function GET(
     );
 
     // Calculate YTD % of Budget
-    ytdSummary.percentOfBudget = ytdSummary.budgetedPremium !== 0
+    const percentOfBudget = ytdSummary.budgetedPremium !== 0
       ? ytdSummary.totalCost / ytdSummary.budgetedPremium
       : 0;
 
@@ -184,7 +193,10 @@ export async function GET(
         code: plan.code
       },
       monthlyData,
-      ytdSummary,
+      ytdSummary: {
+        ...ytdSummary,
+        percentOfBudget
+      },
       pepm: {
         medical: medicalPepm,
         rx: rxPepm,

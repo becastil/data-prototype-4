@@ -94,9 +94,9 @@ export default function UploadPage() {
 
       {/* Step Indicator */}
       <div className="flex items-center justify-center gap-4">
-        <div className={`flex items-center gap-2 ${currentStep === 'upload' ? 'text-accent-primary' : currentStep !== 'upload' ? 'text-status-green' : 'text-slate-500'}`}>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'upload' ? 'border-accent-primary bg-accent-primary/10' : currentStep !== 'upload' ? 'border-status-green bg-status-green/10' : 'border-slate-700'}`}>
-            {currentStep !== 'upload' ? <CheckCircle className="w-5 h-5" /> : '1'}
+        <div className={`flex items-center gap-2 ${currentStep === 'upload' ? 'text-accent-primary' : 'text-status-green'}`}>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'upload' ? 'border-accent-primary bg-accent-primary/10' : 'border-status-green bg-status-green/10'}`}>
+            {currentStep === 'validate' || currentStep === 'review' ? <CheckCircle className="w-5 h-5" /> : '1'}
           </div>
           <span className="text-sm font-medium">Upload</span>
         </div>
