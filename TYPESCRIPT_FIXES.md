@@ -118,55 +118,68 @@ export function formatPercent(
 
 ---
 
-### 3. TypeScript Error: Buffer Type Mismatch ✅
+### 3. TypeScript Error: Buffer Type Incompatibility ✅
 
 **File**: `apps/web/src/app/api/export/pdf/route.ts:65`
 
 **Error**:
 ```
-Type error: Argument of type 'Buffer<ArrayBufferLike> | undefined' is not assignable
+Type error: Argument of type 'Buffer<ArrayBufferLike>' is not assignable
 to parameter of type 'BodyInit | null | undefined'.
+Type 'Buffer<ArrayBufferLike>' is missing the following properties from type 'URLSearchParams': size, append, delete, get, and 2 more.
 ```
 
 **Root Cause**:
-The `result.buffer` could be `undefined`, but we were passing it to `NextResponse` without checking.
+Node.js `Buffer` type is not directly compatible with NextResponse's expected body types. NextResponse expects `BodyInit` which includes `Uint8Array`, but not Node.js `Buffer`.
 
 **Fix Applied**:
-Added a check for `result.buffer` before returning the response:
+Convert Buffer to Uint8Array before passing to NextResponse:
 
 ```typescript
-// Before: Could pass undefined buffer to NextResponse
-if (!result.success) {
-  return NextResponse.json(
-    { error: result.error || 'PDF generation failed' },
-    { status: 500 }
-  );
-}
-return new NextResponse(result.buffer, { // ❌ result.buffer might be undefined
-  // ...
-});
-
-// After: Check buffer exists before using
-if (!result.success || !result.buffer) { // ✅ Guard against undefined
-  return NextResponse.json(
-    { error: result.error || 'PDF generation failed' },
-    { status: 500 }
-  );
-}
-return new NextResponse(result.buffer, { // ✅ TypeScript knows buffer is defined
+// Before: Direct Buffer to NextResponse (incompatible)
+return new NextResponse(result.buffer, { // ❌ Buffer not compatible with BodyInit
   status: 200,
   headers: {
     'Content-Type': 'application/pdf',
     'Content-Disposition': `attachment; filename="${filename}"`,
-    'Content-Length': result.buffer.length.toString() // ✅ Safe to use .length
+    'Content-Length': result.buffer.length.toString()
+  }
+});
+
+// After: Convert Buffer to Uint8Array
+if (!result.success || !result.buffer) {
+  return NextResponse.json(
+    { error: result.error || 'PDF generation failed' },
+    { status: 500 }
+  );
+}
+
+// Convert Buffer to Uint8Array for NextResponse compatibility
+const uint8Array = new Uint8Array(result.buffer);
+
+return new NextResponse(uint8Array, { // ✅ Uint8Array is compatible
+  status: 200,
+  headers: {
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': `attachment; filename="${filename}"`,
+    'Content-Length': result.buffer.length.toString()
   }
 });
 ```
 
+**Also Fixed GET Endpoint**:
+The preview endpoint had the same issue:
+```typescript
+const pdf = await exporter.exportPage(url);
+const uint8Array = new Uint8Array(pdf);
+return new NextResponse(uint8Array, { /* headers */ });
+```
+
 **Why This Works**:
-- TypeScript flow analysis: After the `!result.buffer` check, TypeScript knows `result.buffer` is defined
-- Better error handling: Returns proper error if buffer generation fails
-- Type safety: No more `undefined` in the success path
+- `Uint8Array` is part of the Web API and is compatible with `BodyInit`
+- Node.js `Buffer` is a subclass of `Uint8Array` but has additional properties that make it incompatible with strict type checking
+- Converting to `Uint8Array` creates a standard typed array that works with NextResponse
+- The underlying binary data remains the same, no data loss
 
 ---
 

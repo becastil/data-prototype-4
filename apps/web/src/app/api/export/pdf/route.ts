@@ -62,7 +62,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Return PDF as downloadable file
-    return new NextResponse(result.buffer, {
+    // Convert Buffer to Uint8Array for NextResponse compatibility
+    const uint8Array = new Uint8Array(result.buffer);
+
+    return new NextResponse(uint8Array, {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
@@ -120,7 +123,10 @@ export async function GET(request: NextRequest) {
     const pdf = await exporter.exportPage(url);
 
     // Return PDF
-    return new NextResponse(pdf, {
+    // Convert Buffer to Uint8Array for NextResponse compatibility
+    const uint8Array = new Uint8Array(pdf);
+
+    return new NextResponse(uint8Array, {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
