@@ -25,9 +25,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Fetch admin fee components
+    // Fetch admin fee components via Plan relation
     const adminFees = await prisma.adminFeeComponent.findMany({
-      where: { clientId, planYearId },
+      where: {
+        plan: {
+          clientId: clientId
+        }
+      },
+      include: {
+        plan: true
+      },
       orderBy: { displayOrder: 'asc' }
     });
 
@@ -59,6 +66,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       adminFees: adminFees.map(af => ({
         id: af.id,
+        planId: af.planId,
+        planName: af.plan.name,
         label: af.label,
         feeType: af.feeType,
         amount: Number(af.amount),
@@ -106,7 +115,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { type, data, clientId, planYearId } = body;
+    const { type, data, clientId, planYearId, planId } = body;
 
     if (!clientId || !planYearId || !type) {
       return NextResponse.json(
@@ -118,6 +127,13 @@ export async function POST(request: NextRequest) {
     let result;
 
     if (type === 'admin') {
+      if (!planId && !data.id) {
+        return NextResponse.json(
+          { error: 'planId is required for creating admin fees' },
+          { status: 400 }
+        );
+      }
+
       // Create or update admin fee component
       if (data.id) {
         result = await prisma.adminFeeComponent.update({
@@ -126,26 +142,26 @@ export async function POST(request: NextRequest) {
             label: data.label,
             feeType: data.feeType,
             amount: data.amount,
+            monthlyAmount: data.monthlyAmount ?? 0,
             isActive: data.isActive ?? true,
             displayOrder: data.displayOrder ?? 0
           }
         });
       } else {
-        // Get next display order
+        // Get next display order for this plan
         const maxOrder = await prisma.adminFeeComponent.findFirst({
-          where: { clientId, planYearId },
+          where: { planId },
           orderBy: { displayOrder: 'desc' },
           select: { displayOrder: true }
         });
 
         result = await prisma.adminFeeComponent.create({
           data: {
-            clientId,
-            planYearId,
+            planId,
             label: data.label,
             feeType: data.feeType,
             amount: data.amount,
-            monthlyAmount: 0, // Will be calculated
+            monthlyAmount: data.monthlyAmount ?? 0,
             isActive: data.isActive ?? true,
             displayOrder: (maxOrder?.displayOrder ?? 0) + 1
           }
@@ -181,17 +197,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Get first user for audit log (temporary solution)
+    const firstUser = await prisma.user.findFirst();
+    if (!firstUser) {
+      return NextResponse.json(
+        { error: 'No user found for audit log' },
+        { status: 500 }
+      );
+    }
+
     // Create audit log
     await prisma.auditLog.create({
       data: {
         clientId,
-        userId: 'system', // TODO: Replace with actual user ID from auth
+        actorId: firstUser.id,
         entity: type === 'admin' ? 'ADMIN_FEE' : 'USER_ADJUSTMENT',
         entityId: result.id,
         action: data.id ? 'UPDATE' : 'CREATE',
-        changesSummary: `${data.id ? 'Updated' : 'Created'} ${type} fee`,
-        beforeSnapshot: {},
-        afterSnapshot: result
+        before: {},
+        after: result as any
       }
     });
 
@@ -235,7 +259,8 @@ export async function DELETE(request: NextRequest) {
 
     if (type === 'admin') {
       const fee = await prisma.adminFeeComponent.findUnique({
-        where: { id }
+        where: { id },
+        include: { plan: true }
       });
 
       if (!fee) {
@@ -249,17 +274,25 @@ export async function DELETE(request: NextRequest) {
         where: { id }
       });
 
+      // Get first user for audit log (temporary solution)
+      const firstUser = await prisma.user.findFirst();
+      if (!firstUser) {
+        return NextResponse.json(
+          { error: 'No user found for audit log' },
+          { status: 500 }
+        );
+      }
+
       // Create audit log
       await prisma.auditLog.create({
         data: {
-          clientId: fee.clientId,
-          userId: 'system', // TODO: Replace with actual user ID from auth
+          clientId: fee.plan.clientId,
+          actorId: firstUser.id,
           entity: 'ADMIN_FEE',
           entityId: id,
           action: 'DELETE',
-          changesSummary: `Deleted admin fee: ${fee.label}`,
-          beforeSnapshot: fee,
-          afterSnapshot: {}
+          before: fee as any,
+          after: {}
         }
       });
 
@@ -279,17 +312,25 @@ export async function DELETE(request: NextRequest) {
         where: { id }
       });
 
+      // Get first user for audit log (temporary solution)
+      const firstUser = await prisma.user.findFirst();
+      if (!firstUser) {
+        return NextResponse.json(
+          { error: 'No user found for audit log' },
+          { status: 500 }
+        );
+      }
+
       // Create audit log
       await prisma.auditLog.create({
         data: {
           clientId: adjustment.clientId,
-          userId: 'system', // TODO: Replace with actual user ID from auth
+          actorId: firstUser.id,
           entity: 'USER_ADJUSTMENT',
           entityId: id,
           action: 'DELETE',
-          changesSummary: `Deleted adjustment #${adjustment.itemNumber}`,
-          beforeSnapshot: adjustment,
-          afterSnapshot: {}
+          before: adjustment as any,
+          after: {}
         }
       });
 

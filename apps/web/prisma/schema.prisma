@@ -41,6 +41,7 @@ model Plan {
   id        String  @id @default(uuid()) @db.Uuid
   clientId  String  @map("client_id") @db.Uuid
   name      String
+  code      String? // Short code for plan (e.g., "HDHP", "PPO")
   type      PlanType
   active    Boolean @default(true)
 
@@ -255,11 +256,14 @@ model PremiumEquivalent {
 }
 
 model AdminFeeComponent {
-  id      String      @id @default(uuid()) @db.Uuid
-  planId  String      @map("plan_id") @db.Uuid
-  label   String
-  feeType AdminFeeType @map("fee_type")
-  amount  Decimal     @db.Decimal(12, 2)
+  id            String       @id @default(uuid()) @db.Uuid
+  planId        String       @map("plan_id") @db.Uuid
+  label         String
+  feeType       AdminFeeType @map("fee_type")
+  amount        Decimal      @db.Decimal(12, 2)
+  monthlyAmount Decimal      @map("monthly_amount") @db.Decimal(12, 2) @default(0)
+  isActive      Boolean      @map("is_active") @default(true)
+  displayOrder  Int          @map("display_order") @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -300,9 +304,8 @@ model UserAdjustment {
   clientId   String             @map("client_id") @db.Uuid
   planYearId String             @map("plan_year_id") @db.Uuid
   monthDate  DateTime           @map("month_date")
-  item       AdjustmentItemType
+  itemNumber Int                @map("item_number") // 6 | 9 | 11
   amount     Decimal            @db.Decimal(12, 2)
-  enabled    Boolean            @default(true)
   notes      String?
 
   createdAt  DateTime @default(now())
@@ -311,7 +314,7 @@ model UserAdjustment {
   client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   planYear  PlanYear @relation(fields: [planYearId], references: [id], onDelete: Cascade)
 
-  @@unique([clientId, planYearId, monthDate, item])
+  @@unique([clientId, planYearId, monthDate, itemNumber])
   @@index([clientId, planYearId, monthDate])
 }
 

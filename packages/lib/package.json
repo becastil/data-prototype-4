@@ -6,8 +6,12 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./formulas/*": "./src/formulas/*.ts",
-    "./pdf/*": "./src/pdf/*.ts",
+    "./formulas/monthly-columns": "./src/formulas/monthly-columns.ts",
+    "./formulas/pepm": "./src/formulas/pepm.ts",
+    "./formulas/ce-summary": "./src/formulas/ce-summary.ts",
+    "./formulas/high-claimants": "./src/formulas/high-claimants.ts",
+    "./formulas/executive": "./src/formulas/executive.ts",
+    "./pdf/export": "./src/pdf/export.ts",
     "./types": "./src/types.ts",
     "./utils": "./src/utils.ts"
   },
