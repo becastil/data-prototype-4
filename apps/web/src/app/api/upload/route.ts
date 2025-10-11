@@ -23,9 +23,133 @@ interface ValidationError {
 }
 
 /**
+ * Save monthly data to database
+ * Extracted from PUT endpoint to be reusable
+ */
+async function saveMonthlyData(
+  clientId: string,
+  planYearId: string,
+  dataRows: CsvRow[],
+  fileType: string
+): Promise<{ monthsImported: number; rowsImported: number }> {
+  // Get all plans for this client
+  const plans = await prisma.plan.findMany({
+    where: { clientId }
+  });
+
+  const plansByCode = plans.reduce((acc, plan) => {
+    const key = (plan.code || plan.name).toLowerCase();
+    acc[key] = plan;
+    return acc;
+  }, {} as Record<string, any>);
+
+  // Group by month
+  const byMonth = dataRows.reduce((acc: any, row: CsvRow) => {
+    if (!acc[row.month]) {
+      acc[row.month] = [];
+    }
+    acc[row.month].push(row);
+    return acc;
+  }, {});
+
+  let rowsImported = 0;
+
+  // Insert data month by month
+  for (const [month, monthRows] of Object.entries(byMonth) as [string, CsvRow[]][]) {
+    // Create or update month snapshot
+    const snapshot = await prisma.monthSnapshot.upsert({
+      where: {
+        clientId_planYearId_monthDate: {
+          clientId,
+          planYearId,
+          monthDate: new Date(month + '-01')
+        }
+      },
+      create: {
+        clientId,
+        planYearId,
+        monthDate: new Date(month + '-01')
+      },
+      update: {}
+    });
+
+    // Insert plan stats for this month
+    for (const row of monthRows) {
+      // Skip "All Plans" row - it's calculated
+      if (row.plan.toLowerCase() === 'all plans') continue;
+
+      const plan = plansByCode[row.plan.toLowerCase()];
+      if (!plan) {
+        console.warn(`Plan not found: ${row.plan}`);
+        continue;
+      }
+
+      await prisma.monthlyPlanStat.upsert({
+        where: {
+          snapshotId_planId: {
+            snapshotId: snapshot.id,
+            planId: plan.id
+          }
+        },
+        create: {
+          snapshotId: snapshot.id,
+          planId: plan.id,
+          totalSubscribers: row.subscribers,
+          medicalPaid: row.medicalPaid,
+          rxPaid: row.rxPaid,
+          specStopLossReimb: row.stopLossReimb,
+          estRxRebates: row.rxRebates,
+          adminFees: row.adminFees,
+          stopLossFees: row.stopLossFees,
+          budgetedPremium: row.budgetedPremium
+        },
+        update: {
+          totalSubscribers: row.subscribers,
+          medicalPaid: row.medicalPaid,
+          rxPaid: row.rxPaid,
+          specStopLossReimb: row.stopLossReimb,
+          estRxRebates: row.rxRebates,
+          adminFees: row.adminFees,
+          stopLossFees: row.stopLossFees,
+          budgetedPremium: row.budgetedPremium
+        }
+      });
+
+      rowsImported++;
+    }
+  }
+
+  // Create audit log
+  const firstUser = await prisma.user.findFirst();
+  if (firstUser) {
+    await prisma.auditLog.create({
+      data: {
+        clientId,
+        actorId: firstUser.id,
+        entity: 'MONTHLY_DATA',
+        entityId: planYearId,
+        action: 'UPLOAD',
+        before: {},
+        after: { rowCount: dataRows.length, months: Object.keys(byMonth) } as any
+      }
+    });
+  }
+
+  return {
+    monthsImported: Object.keys(byMonth).length,
+    rowsImported
+  };
+}
+
+/**
  * POST /api/upload
  *
  * Upload and validate CSV/XLSX data for monthly plan stats
+ *
+ * Query params:
+ * - preview: 'true' | 'false' (default: false)
+ *   - false: Validates and saves data to database
+ *   - true: Validates only, returns preview without saving
  *
  * Body (multipart/form-data):
  * - file: CSV/XLSX file
@@ -35,6 +159,10 @@ interface ValidationError {
  */
 export async function POST(request: NextRequest) {
   try {
+    // Check if preview mode
+    const { searchParams } = new URL(request.url);
+    const previewMode = searchParams.get('preview') === 'true';
+
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const clientId = formData.get('clientId') as string;
@@ -60,13 +188,43 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse CSV (simple implementation - production would use a library like papaparse)
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const rawHeaders = lines[0].split(',').map(h => h.trim());
+
+    // Create column name mapping to handle different formats
+    const headerMap: Record<string, string> = {};
+    rawHeaders.forEach((header, index) => {
+      const normalized = header.toLowerCase().replace(/\s+/g, '_');
+
+      // Map user's column names to internal field names
+      const mappings: Record<string, string> = {
+        'month': 'month',
+        'total_subs': 'subscribers',
+        'total_subscribers': 'subscribers',
+        'medical_paid': 'medical_paid',
+        'rx_paid': 'rx_paid',
+        'spec_stop_los_est': 'stop_loss_reimb',
+        'spec_stop_loss_reimb': 'stop_loss_reimb',
+        'rx_rebate': 'rx_rebates',
+        'est_rx_rebates': 'rx_rebates',
+        'admin_fees': 'admin_fees',
+        'stop_loss_fee': 'stop_loss_fees',
+        'stop_loss_fees': 'stop_loss_fees',
+        'budgeted_premi': 'budgeted_premium',
+        'budgeted_premium': 'budgeted_premium',
+        'plan': 'plan'
+      };
+
+      const mappedName = mappings[normalized] || normalized;
+      headerMap[index.toString()] = mappedName;
+    });
+
+    const headers = Object.values(headerMap);
     const rows: CsvRow[] = [];
     const errors: ValidationError[] = [];
 
     // Validate headers based on file type
     const requiredHeaders = fileType === 'monthly'
-      ? ['month', 'plan', 'subscribers', 'medical_paid', 'rx_paid', 'budgeted_premium']
+      ? ['month', 'subscribers', 'medical_paid', 'rx_paid', 'budgeted_premium']
       : fileType === 'hcc'
       ? ['claimant_key', 'plan', 'total_paid', 'medical_paid', 'rx_paid']
       : [];
@@ -77,7 +235,7 @@ export async function POST(request: NextRequest) {
         {
           error: 'Invalid CSV headers',
           missingHeaders,
-          receivedHeaders: headers
+          receivedHeaders: rawHeaders
         },
         { status: 400 }
       );
@@ -88,8 +246,9 @@ export async function POST(request: NextRequest) {
       const values = lines[i].split(',').map(v => v.trim());
       const row: any = {};
 
-      headers.forEach((header, index) => {
-        row[header] = values[index];
+      // Use the header map to assign values correctly
+      Object.entries(headerMap).forEach(([index, mappedName]) => {
+        row[mappedName] = values[parseInt(index)];
       });
 
       // Validate based on file type
@@ -116,17 +275,17 @@ export async function POST(request: NextRequest) {
           }
         });
 
-        // Parse the row
+        // Parse the row - plan comes from form data, not CSV
         const parsedRow: CsvRow = {
           month: row.month,
-          plan: row.plan,
+          plan: row.plan || fileType, // Use fileType as plan identifier if no plan column
           subscribers: parseInt(row.subscribers) || 0,
           medicalPaid: parseFloat(row.medical_paid) || 0,
           rxPaid: parseFloat(row.rx_paid) || 0,
-          stopLossReimb: parseFloat(row.stop_loss_reimb || 0),
-          rxRebates: parseFloat(row.rx_rebates || 0),
-          adminFees: parseFloat(row.admin_fees || 0),
-          stopLossFees: parseFloat(row.stop_loss_fees || 0),
+          stopLossReimb: parseFloat(row.stop_loss_reimb) || 0,
+          rxRebates: parseFloat(row.rx_rebates) || 0,
+          adminFees: parseFloat(row.admin_fees) || 0,
+          stopLossFees: parseFloat(row.stop_loss_fees) || 0,
           budgetedPremium: parseFloat(row.budgeted_premium) || 0
         };
 
@@ -146,11 +305,84 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Separate data rows from sum/total rows
+    const dataRows: CsvRow[] = [];
+    let sumRow: CsvRow | undefined = undefined;
+
+    rows.forEach(row => {
+      const monthStr = row.month.toLowerCase();
+      // Check if this is a sum/total/average row
+      if (monthStr.includes('sum') || monthStr.includes('total') || monthStr.includes('average')) {
+        sumRow = row;
+      } else {
+        dataRows.push(row);
+      }
+    });
+
+    // Validate sum row if present
+    const sumValidationErrors: string[] = [];
+    if (sumRow && fileType === 'monthly') {
+      const tolerance = 1.0; // Allow $1 difference due to rounding
+      const validatedSumRow: CsvRow = sumRow; // Type assertion for narrowing
+
+      // Calculate actual totals from data rows
+      const actualTotals = dataRows.reduce((acc, row) => ({
+        subscribers: acc.subscribers + row.subscribers,
+        medicalPaid: acc.medicalPaid + row.medicalPaid,
+        rxPaid: acc.rxPaid + row.rxPaid,
+        stopLossReimb: acc.stopLossReimb + row.stopLossReimb,
+        rxRebates: acc.rxRebates + row.rxRebates,
+        adminFees: acc.adminFees + row.adminFees,
+        stopLossFees: acc.stopLossFees + row.stopLossFees,
+        budgetedPremium: acc.budgetedPremium + row.budgetedPremium
+      }), {
+        subscribers: 0,
+        medicalPaid: 0,
+        rxPaid: 0,
+        stopLossReimb: 0,
+        rxRebates: 0,
+        adminFees: 0,
+        stopLossFees: 0,
+        budgetedPremium: 0
+      });
+
+      // Check each field
+      const checks: Array<{field: string, actual: number, provided: number, label: string}> = [
+        { field: 'medicalPaid', actual: actualTotals.medicalPaid, provided: validatedSumRow.medicalPaid, label: 'Medical Paid sum' },
+        { field: 'rxPaid', actual: actualTotals.rxPaid, provided: validatedSumRow.rxPaid, label: 'Rx Paid sum' },
+        { field: 'stopLossReimb', actual: actualTotals.stopLossReimb, provided: validatedSumRow.stopLossReimb, label: 'Spec Stop Los Est sum' },
+        { field: 'rxRebates', actual: actualTotals.rxRebates, provided: validatedSumRow.rxRebates, label: 'Rx Rebate sum' },
+        { field: 'adminFees', actual: actualTotals.adminFees, provided: validatedSumRow.adminFees, label: 'Admin Fees sum' },
+        { field: 'stopLossFees', actual: actualTotals.stopLossFees, provided: validatedSumRow.stopLossFees, label: 'Stop Loss Fee sum' },
+        { field: 'budgetedPremium', actual: actualTotals.budgetedPremium, provided: validatedSumRow.budgetedPremium, label: 'Budgeted sum' }
+      ];
+
+      checks.forEach(check => {
+        const diff = Math.abs(check.actual - check.provided);
+        if (diff > tolerance) {
+          sumValidationErrors.push(
+            `${check.label}: Calculated sum is $${check.actual.toFixed(2)}, but spreadsheet shows $${check.provided.toFixed(2)} (difference: $${diff.toFixed(2)})`
+          );
+        }
+      });
+
+      // Special check for average subscribers
+      if (validatedSumRow.subscribers > 0 && dataRows.length > 0) {
+        const actualAvg = actualTotals.subscribers / dataRows.length;
+        const diff = Math.abs(actualAvg - validatedSumRow.subscribers);
+        if (diff > 1) { // Allow 1 subscriber difference due to rounding
+          sumValidationErrors.push(
+            `Total Subs Average: Calculated average is ${actualAvg.toFixed(0)}, but spreadsheet shows ${validatedSumRow.subscribers} (difference: ${diff.toFixed(0)})`
+          );
+        }
+      }
+    }
+
     // Reconciliation check: Σ per-plan must equal "All Plans" for each month
     const reconciliationErrors: string[] = [];
 
     if (fileType === 'monthly') {
-      const byMonth = rows.reduce((acc, row) => {
+      const byMonth = dataRows.reduce((acc, row) => {
         if (!acc[row.month]) {
           acc[row.month] = { allPlans: null, plans: [] };
         }
@@ -196,6 +428,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Report sum validation errors if any
+    if (sumValidationErrors.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          sumValidationErrors,
+          message: 'Sum/Total row validation failed. The totals in your spreadsheet do not match the calculated sums.'
+        },
+        { status: 400 }
+      );
+    }
+
     if (reconciliationErrors.length > 0) {
       return NextResponse.json(
         {
@@ -207,16 +451,49 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Return preview data (actual insert would happen on confirmation)
+    // If preview mode, return validation results without saving
+    if (previewMode) {
+      return NextResponse.json({
+        success: true,
+        preview: {
+          rowCount: dataRows.length,
+          months: [...new Set(dataRows.map(r => r.month))].sort(),
+          plans: [...new Set(dataRows.map(r => r.plan))],
+          sampleRows: dataRows.slice(0, 5)
+        },
+        validation: {
+          dataRows: dataRows.length,
+          sumRowDetected: sumRow !== undefined,
+          sumValidationPassed: sumValidationErrors.length === 0
+        },
+        saved: false,
+        message: 'Validation passed. Data not saved (preview mode).'
+      });
+    }
+
+    // Save data to database
+    const importResult = await saveMonthlyData(clientId, planYearId, dataRows, fileType);
+
+    // Return success with saved data confirmation
     return NextResponse.json({
       success: true,
       preview: {
-        rowCount: rows.length,
-        months: [...new Set(rows.map(r => r.month))].sort(),
-        plans: [...new Set(rows.map(r => r.plan))],
-        sampleRows: rows.slice(0, 5)
+        rowCount: dataRows.length,
+        months: [...new Set(dataRows.map(r => r.month))].sort(),
+        plans: [...new Set(dataRows.map(r => r.plan))],
+        sampleRows: dataRows.slice(0, 5)
       },
-      message: 'Validation passed. Ready to import.'
+      validation: {
+        dataRows: dataRows.length,
+        sumRowDetected: sumRow !== undefined,
+        sumValidationPassed: sumValidationErrors.length === 0
+      },
+      saved: true,
+      import: {
+        monthsImported: importResult.monthsImported,
+        rowsImported: importResult.rowsImported
+      },
+      message: `Validation passed and data saved successfully. Imported ${importResult.rowsImported} rows across ${importResult.monthsImported} months.`
     });
 
   } catch (error) {

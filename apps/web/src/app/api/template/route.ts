@@ -22,28 +22,28 @@ export async function GET(request: NextRequest) {
       case 'hdhp':
       case 'ppo-base':
       case 'ppo-buyup':
-        // Monthly plan data template
+        // Monthly plan data template - matches user's spreadsheet format
         headers = [
           'Month',
-          'Total Subscribers',
+          'Total Subs',
           'Medical Paid',
           'Rx Paid',
-          'Spec Stop Loss Reimb',
-          'Est Rx Rebates',
+          'Spec Stop Los Est',
+          'Rx Rebate',
           'Admin Fees',
-          'Stop Loss Fees',
-          'Budgeted Premium'
+          'Stop Loss Fee',
+          'Budgeted Premi'
         ];
         sampleRow = [
           '2024-01',
-          '150',
-          '125000.00',
-          '45000.00',
-          '-5000.00',
-          '-3000.00',
-          '8500.00',
-          '12000.00',
-          '180000.00'
+          '1501',
+          '125000',
+          '45000',
+          '-5000',
+          '-3000',
+          '8500',
+          '12000',
+          '180000'
         ];
         filename = `${type}-monthly-template.csv`;
         break;
