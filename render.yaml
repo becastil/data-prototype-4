@@ -17,11 +17,13 @@ services:
       npm ci
       cd apps/web
       npx prisma generate
-      npm run build
+      cd ../..
+      npm run build --filter=@medical-reporting/web
 
     # Start command
     startCommand: |
       cd apps/web
+      npx prisma migrate deploy
       npm start
 
     # Environment variables

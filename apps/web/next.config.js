@@ -2,6 +2,8 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
+  // Transpile local packages
+  transpilePackages: ['@medical-reporting/lib', '@medical-reporting/ui'],
   experimental: {
     serverActions: {
       bodySizeLimit: '10mb'
