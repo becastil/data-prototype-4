@@ -1,0 +1,20 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install dependencies for the entire monorepo
+COPY package*.json ./
+COPY turbo.json ./
+COPY apps/web/package*.json ./apps/web/
+COPY packages ./packages
+
+RUN npm install
+
+# Copy application code
+COPY apps/web ./apps/web
+
+WORKDIR /app/apps/web
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]

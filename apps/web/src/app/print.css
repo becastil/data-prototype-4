@@ -1,0 +1,264 @@
+/**
+ * Print-Optimized Styles for PDF Export
+ *
+ * Applied when ?print=true query parameter is present
+ * Optimizes dashboard pages for PDF rendering
+ */
+
+@media print, (min-width: 0px) {
+  /* Global print styles */
+  body.print-mode {
+    background: white !important;
+  }
+
+  /* Hide navigation elements */
+  .print-mode aside,
+  .print-mode header,
+  .print-mode .status-pill,
+  .print-mode button,
+  .print-mode .no-print {
+    display: none !important;
+  }
+
+  /* Optimize layout for print */
+  .print-mode main {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* Report cards - optimize spacing */
+  .print-mode .report-card {
+    background: white !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+    margin-bottom: 1rem !important;
+  }
+
+  /* Tables - ensure full width */
+  .print-mode .data-table {
+    width: 100% !important;
+    font-size: 10px !important;
+  }
+
+  .print-mode .data-table th,
+  .print-mode .data-table td {
+    padding: 6px 8px !important;
+    border: 1px solid #e2e8f0 !important;
+    background: white !important;
+    color: #1e293b !important;
+  }
+
+  .print-mode .data-table th {
+    background: #f1f5f9 !important;
+    font-weight: 600 !important;
+  }
+
+  /* Charts - ensure visibility */
+  .print-mode .recharts-wrapper {
+    background: white !important;
+  }
+
+  .print-mode .recharts-cartesian-grid line {
+    stroke: #e2e8f0 !important;
+  }
+
+  /* KPI Pills */
+  .print-mode .kpi-pill {
+    background: white !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #1e293b !important;
+  }
+
+  /* Fuel Gauge - convert colors to grayscale for print */
+  .print-mode .fuel-gauge-green {
+    color: #059669 !important;
+  }
+
+  .print-mode .fuel-gauge-yellow {
+    color: #d97706 !important;
+  }
+
+  .print-mode .fuel-gauge-red {
+    color: #dc2626 !important;
+  }
+
+  /* Page breaks */
+  .print-mode .page-break-before {
+    page-break-before: always;
+  }
+
+  .print-mode .page-break-after {
+    page-break-after: always;
+  }
+
+  .print-mode .page-break-avoid {
+    page-break-inside: avoid;
+  }
+
+  /* Headers and titles */
+  .print-mode h1,
+  .print-mode h2,
+  .print-mode h3 {
+    color: #1e293b !important;
+    page-break-after: avoid;
+  }
+
+  /* Ensure text is readable */
+  .print-mode .text-slate-400,
+  .print-mode .text-slate-300,
+  .print-mode .text-text-dark {
+    color: #475569 !important;
+  }
+
+  /* Remove shadows and effects */
+  .print-mode * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* Optimize spacing */
+  .print-mode .space-y-8 > * + * {
+    margin-top: 1.5rem !important;
+  }
+
+  .print-mode .space-y-6 > * + * {
+    margin-top: 1rem !important;
+  }
+
+  /* Grid layouts - maintain structure */
+  .print-mode .grid {
+    display: grid !important;
+  }
+
+  /* Flex layouts */
+  .print-mode .flex {
+    display: flex !important;
+  }
+
+  /* Hide overflow for clean print */
+  .print-mode {
+    overflow: visible !important;
+  }
+
+  /* Executive Summary specific */
+  .print-mode .fuel-gauge {
+    page-break-inside: avoid;
+  }
+
+  /* Monthly Detail specific */
+  .print-mode .monthly-table {
+    font-size: 9px !important;
+  }
+
+  .print-mode .monthly-table th {
+    font-size: 8px !important;
+    line-height: 1.2 !important;
+  }
+
+  /* High-Cost Claimants specific */
+  .print-mode .hcc-table {
+    width: 100% !important;
+  }
+
+  /* C&E Summary specific */
+  .print-mode .ce-row-total {
+    background: #dbeafe !important;
+    font-weight: 600 !important;
+  }
+
+  .print-mode .ce-row-adjustment {
+    background: #fef3c7 !important;
+  }
+
+  .print-mode .ce-row-over-budget {
+    background: #fee2e2 !important;
+  }
+
+  .print-mode .ce-row-under-budget {
+    background: #dcfce7 !important;
+  }
+
+  /* Inputs page specific */
+  .print-mode .inputs-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Remove interactive elements */
+  .print-mode input,
+  .print-mode select,
+  .print-mode textarea,
+  .print-mode .slider {
+    border: 1px solid #e2e8f0 !important;
+    background: #f8fafc !important;
+    pointer-events: none;
+  }
+
+  /* Ensure proper text rendering */
+  .print-mode {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Header and footer spacing */
+  @page {
+    margin: 0.5in 0.5in 0.75in 0.5in;
+  }
+
+  /* First page - no header */
+  @page :first {
+    margin-top: 0.25in;
+  }
+}
+
+/* Non-print mode - hide print-specific elements */
+body:not(.print-mode) .print-only {
+  display: none !important;
+}
+
+/* Print header for each page */
+.print-mode .print-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+  border-bottom: 2px solid #e2e8f0;
+  margin-bottom: 1.5rem;
+}
+
+.print-mode .print-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.print-mode .print-header .metadata {
+  text-align: right;
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+/* Print footer for reference */
+.print-mode .print-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+  border-top: 1px solid #e2e8f0;
+  margin-top: 2rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+/* Landscape mode for wide tables */
+.print-mode.landscape {
+  width: 11in;
+  height: 8.5in;
+}
+
+/* Portrait mode (default) */
+.print-mode.portrait {
+  width: 8.5in;
+  height: 11in;
+}

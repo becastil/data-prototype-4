@@ -1,0 +1,395 @@
+// Medical Reporting Platform - Prisma Schema
+// Multi-tenant, multi-plan, multi-year with rolling 24-month analytics
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// Core Entities
+// ============================================
+
+model Client {
+  id     String  @id @default(uuid()) @db.Uuid
+  name   String
+  cadence String @default("monthly") // monthly | quarterly
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plans              Plan[]
+  planYears          PlanYear[]
+  monthSnapshots     MonthSnapshot[]
+  highClaimants      HighClaimant[]
+  cAndESummaryRows   CAndESummaryRow[]
+  userAdjustments    UserAdjustment[]
+  observationNotes   ObservationNote[]
+  users              User[]
+  auditLogs          AuditLog[]
+  inputs             Input[]
+
+  @@index([active])
+}
+
+model Plan {
+  id        String  @id @default(uuid()) @db.Uuid
+  clientId  String  @map("client_id") @db.Uuid
+  name      String
+  type      PlanType
+  active    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client                 Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tiers                  PlanTier[]
+  monthlyStats           MonthlyPlanStat[]
+  highClaimants          HighClaimant[]
+  premiumEquivalents     PremiumEquivalent[]
+  adminFeeComponents     AdminFeeComponent[]
+  stopLossFeesByTier     StopLossFeeByTier[]
+
+  @@unique([clientId, name])
+  @@index([clientId, type])
+}
+
+enum PlanType {
+  HDHP
+  PPO_BASE
+  PPO_BUYUP
+  ALL_PLANS  // Meta plan for aggregated stats
+}
+
+model PlanTier {
+  id      String @id @default(uuid()) @db.Uuid
+  planId  String @map("plan_id") @db.Uuid
+  label   String // "Employee Only" | "+Spouse" | "+Child(ren)" | "Family"
+
+  createdAt DateTime @default(now())
+
+  plan                  Plan                   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  premiumEquivalents    PremiumEquivalent[]
+  stopLossFees          StopLossFeeByTier[]
+
+  @@unique([planId, label])
+}
+
+model PlanYear {
+  id        String   @id @default(uuid()) @db.Uuid
+  clientId  String   @map("client_id") @db.Uuid
+  yearStart DateTime @map("year_start")
+  yearEnd   DateTime @map("year_end")
+  islLimit  Decimal  @map("isl_limit") @default(200000) @db.Decimal(12, 2)
+  stopLossTrackingMode String @map("stop_loss_tracking_mode") @default("BY_PLAN") // BY_PLAN | AGGREGATE
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client              Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  monthSnapshots      MonthSnapshot[]
+  highClaimants       HighClaimant[]
+  cAndESummaryRows    CAndESummaryRow[]
+  userAdjustments     UserAdjustment[]
+  observationNotes    ObservationNote[]
+  inputs              Input[]
+
+  @@unique([clientId, yearStart])
+  @@index([clientId, yearStart, yearEnd])
+}
+
+// ============================================
+// Monthly Snapshots & Stats
+// ============================================
+
+model MonthSnapshot {
+  id          String   @id @default(uuid()) @db.Uuid
+  clientId    String   @map("client_id") @db.Uuid
+  planYearId  String   @map("plan_year_id") @db.Uuid
+  monthDate   DateTime @map("month_date") // First day of month
+
+  createdAt   DateTime @default(now())
+
+  client         Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  planYear       PlanYear           @relation(fields: [planYearId], references: [id], onDelete: Cascade)
+  planStats      MonthlyPlanStat[]
+
+  @@unique([clientId, planYearId, monthDate])
+  @@index([clientId, monthDate])
+}
+
+model MonthlyPlanStat {
+  id                    String   @id @default(uuid()) @db.Uuid
+  snapshotId            String   @map("snapshot_id") @db.Uuid
+  planId                String   @map("plan_id") @db.Uuid
+
+  // Column B
+  totalSubscribers      Int      @map("total_subscribers")
+
+  // Columns C & D
+  medicalPaid           Decimal  @map("medical_paid") @db.Decimal(12, 2)
+  rxPaid                Decimal  @map("rx_paid") @db.Decimal(12, 2)
+
+  // Column F (negative reduces cost)
+  specStopLossReimb     Decimal  @map("spec_stop_loss_reimb") @db.Decimal(12, 2) @default(0)
+
+  // Column G (negative reduces cost)
+  estRxRebates          Decimal  @map("est_rx_rebates") @db.Decimal(12, 2) @default(0)
+
+  // Columns I & J
+  adminFees             Decimal  @map("admin_fees") @db.Decimal(12, 2)
+  stopLossFees          Decimal  @map("stop_loss_fees") @db.Decimal(12, 2)
+
+  // Column L
+  budgetedPremium       Decimal  @map("budgeted_premium") @db.Decimal(12, 2)
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  snapshot MonthSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  plan     Plan          @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, planId])
+  @@index([planId, snapshotId])
+}
+
+// ============================================
+// High-Cost Claimants
+// ============================================
+
+model HighClaimant {
+  id                  String   @id @default(uuid()) @db.Uuid
+  clientId            String   @map("client_id") @db.Uuid
+  planYearId          String   @map("plan_year_id") @db.Uuid
+  claimantKey         String   @map("claimant_key") // De-identified hash
+  planId              String   @map("plan_id") @db.Uuid
+  status              ClaimantStatus
+  primaryDiagnosis    String?  @map("primary_diagnosis")
+
+  medPaid             Decimal  @map("med_paid") @db.Decimal(12, 2)
+  rxPaid              Decimal  @map("rx_paid") @db.Decimal(12, 2)
+  totalPaid           Decimal  @map("total_paid") @db.Decimal(12, 2)
+  amountExceedingIsl  Decimal  @map("amount_exceeding_isl") @db.Decimal(12, 2) @default(0)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  planYear  PlanYear @relation(fields: [planYearId], references: [id], onDelete: Cascade)
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, planYearId, claimantKey])
+  @@index([clientId, planYearId, totalPaid])
+}
+
+enum ClaimantStatus {
+  ACTIVE
+  RESOLVED
+  PENDING
+}
+
+// ============================================
+// C&E Summary (28-row statement)
+// ============================================
+
+model CAndESummaryRow {
+  id                String   @id @default(uuid()) @db.Uuid
+  clientId          String   @map("client_id") @db.Uuid
+  planYearId        String   @map("plan_year_id") @db.Uuid
+  monthDate         DateTime @map("month_date")
+  itemNumber        Int      @map("item_number") // 1-28
+  value             Decimal  @db.Decimal(12, 2)
+  isUserAdjustment  Boolean  @map("is_user_adjustment") @default(false)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  planYear  PlanYear @relation(fields: [planYearId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, planYearId, monthDate, itemNumber])
+  @@index([clientId, planYearId, monthDate])
+}
+
+// ============================================
+// Inputs & Configuration
+// ============================================
+
+model Input {
+  id                    String   @id @default(uuid()) @db.Uuid
+  clientId              String   @map("client_id") @db.Uuid
+  planYearId            String   @map("plan_year_id") @db.Uuid
+  rxRebatePepmEstimate  Decimal  @map("rx_rebate_pepm_estimate") @db.Decimal(12, 2) @default(0)
+  ibnrAdjustment        Decimal  @map("ibnr_adjustment") @db.Decimal(12, 2) @default(0)
+  aggregateFactor       Decimal  @map("aggregate_factor") @db.Decimal(5, 4) @default(1.25)
+  aslFee                Decimal  @map("asl_fee") @db.Decimal(12, 2) @default(0)
+  notes                 String?
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  planYear  PlanYear @relation(fields: [planYearId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, planYearId])
+}
+
+model PremiumEquivalent {
+  id      String  @id @default(uuid()) @db.Uuid
+  planId  String  @map("plan_id") @db.Uuid
+  tierId  String  @map("tier_id") @db.Uuid
+  amount  Decimal @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plan Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  tier PlanTier @relation(fields: [tierId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, tierId])
+}
+
+model AdminFeeComponent {
+  id      String      @id @default(uuid()) @db.Uuid
+  planId  String      @map("plan_id") @db.Uuid
+  label   String
+  feeType AdminFeeType @map("fee_type")
+  amount  Decimal     @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+}
+
+enum AdminFeeType {
+  PEPM   // Per Employee Per Month
+  PMPM   // Per Member Per Month
+  FLAT   // Fixed monthly amount
+}
+
+model StopLossFeeByTier {
+  id       String  @id @default(uuid()) @db.Uuid
+  planId   String  @map("plan_id") @db.Uuid
+  tierId   String  @map("tier_id") @db.Uuid
+  islRate  Decimal @map("isl_rate") @db.Decimal(12, 2) // Individual Stop Loss rate
+  aslRate  Decimal @map("asl_rate") @db.Decimal(12, 2) // Aggregate Stop Loss rate
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plan Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  tier PlanTier @relation(fields: [tierId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, tierId])
+}
+
+// ============================================
+// User Adjustments
+// ============================================
+
+model UserAdjustment {
+  id         String             @id @default(uuid()) @db.Uuid
+  clientId   String             @map("client_id") @db.Uuid
+  planYearId String             @map("plan_year_id") @db.Uuid
+  monthDate  DateTime           @map("month_date")
+  item       AdjustmentItemType
+  amount     Decimal            @db.Decimal(12, 2)
+  enabled    Boolean            @default(true)
+  notes      String?
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  planYear  PlanYear @relation(fields: [planYearId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, planYearId, monthDate, item])
+  @@index([clientId, planYearId, monthDate])
+}
+
+enum AdjustmentItemType {
+  UC_SETTLEMENT   // #6
+  RX_REBATES      // #9
+  STOPLOSS_REIMB  // #11
+}
+
+// ============================================
+// Observations & Notes
+// ============================================
+
+model ObservationNote {
+  id         String    @id @default(uuid()) @db.Uuid
+  clientId   String    @map("client_id") @db.Uuid
+  planYearId String    @map("plan_year_id") @db.Uuid
+  monthDate  DateTime? @map("month_date") // null = plan-year-level note
+  text       String    @db.Text
+  authorId   String    @map("author_id") @db.Uuid
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  planYear PlanYear @relation(fields: [planYearId], references: [id], onDelete: Cascade)
+  author   User     @relation(fields: [authorId], references: [id])
+
+  @@index([clientId, planYearId, monthDate])
+}
+
+// ============================================
+// Users & RBAC
+// ============================================
+
+model User {
+  id       String   @id @default(uuid()) @db.Uuid
+  email    String   @unique
+  role     UserRole
+  clientId String?  @map("client_id") @db.Uuid // null = super admin
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client            Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  observationNotes  ObservationNote[]
+  auditLogs         AuditLog[]
+
+  @@index([clientId, role])
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  ANALYST
+  VIEWER
+  BROKER
+}
+
+// ============================================
+// Audit Trail
+// ============================================
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  actorId   String   @map("actor_id") @db.Uuid
+  clientId  String   @map("client_id") @db.Uuid
+  action    String   // CREATE | UPDATE | DELETE | EXPORT
+  entity    String   // table name
+  entityId  String   @map("entity_id") @db.Uuid
+  before    Json?    @db.JsonB
+  after     Json?    @db.JsonB
+  timestamp DateTime @default(now())
+
+  actor  User   @relation(fields: [actorId], references: [id])
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, timestamp])
+  @@index([actorId, timestamp])
+  @@index([entity, entityId])
+}
