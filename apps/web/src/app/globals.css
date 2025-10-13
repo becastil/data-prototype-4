@@ -72,7 +72,7 @@
   }
 
   .data-table th {
-    @apply bg-base-900 px-4 py-3 text-left text-sm font-semibold text-slate-400 border-b border-slate-700;
+    @apply bg-base-900 px-4 py-3 text-left text-sm font-semibold text-slate-300 border-b border-slate-700;
   }
 
   .data-table td {
@@ -117,5 +117,17 @@
 @layer utilities {
   .transition-uber {
     @apply transition-all duration-nav ease-uber;
+  }
+
+  /* Accessibility improvements */
+  *:focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent-primary;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  select:focus-visible,
+  input:focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent-primary;
   }
 }

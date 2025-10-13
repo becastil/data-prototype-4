@@ -32,8 +32,6 @@ interface AdjustmentEntry {
   notes: string;
 }
 
-const monthColumns = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-
 export default function FeesManagerPage() {
   const [activeTab, setActiveTab] = useState<TabType>('admin');
 
@@ -425,7 +423,7 @@ export default function FeesManagerPage() {
                   {adjustments.filter(a => a.itemNumber === 6).length === 0 && (
                     <tr>
                       <td colSpan={4} className="text-center text-slate-500 py-4">
-                        No UC Settlement adjustments. Click "Add Entry" to create one.
+                        No UC Settlement adjustments. Click &quot;Add Entry&quot; to create one.
                       </td>
                     </tr>
                   )}
@@ -660,9 +658,9 @@ export default function FeesManagerPage() {
               These adjustments are integrated into the 28-row C&E Summary calculations:
             </p>
             <code className="block p-4 bg-base-950 rounded text-xs space-y-1">
-              <div className="text-slate-500">// Item #15 - Monthly C&E</div>
+              <div className="text-slate-500">{'// Item #15 - Monthly C&E'}</div>
               <div>Monthly C&E = #7 (Adj Medical) + #8 (Total Rx) + #9 (Rx Rebates) + #10 (SL Fees) - #11 (SL Reimb) + #14 (Admin)</div>
-              <div className="text-slate-500 mt-3">// Where:</div>
+              <div className="text-slate-500 mt-3">{'// Where:'}</div>
               <div>#7 = Total Adjusted All Medical (includes #6 UC Settlement)</div>
               <div>#9 = Rx Rebates (user-adjustable, typically negative)</div>
               <div>#11 = Stop Loss Reimbursement (user-adjustable, typically negative)</div>

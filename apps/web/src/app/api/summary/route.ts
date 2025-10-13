@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { calculateCeSummary } from '@medical-reporting/lib/formulas/ce-summary';
+
 
 const prisma = new PrismaClient();
 
@@ -68,7 +68,35 @@ export async function POST(request: NextRequest) {
     }, {} as Record<string, Record<number, number>>);
 
     // Calculate C&E for each month
-    const monthlyResults = snapshots.map(snapshot => {
+    interface MonthlyResult {
+      monthDate: Date;
+      monthKey: string;
+      item1_paidClaims: number;
+      item2_ibnr: number;
+      item3_runout: number;
+      item4_asl: number;
+      item5_totalAllMedical: number;
+      item6_ucSettlement: number;
+      item7_totalAdjustedMedical: number;
+      item8_totalRx: number;
+      item9_rxRebates: number;
+      item10_stopLossFees: number;
+      item11_stopLossReimbursement: number;
+      item12_aso: number;
+      item13_other: number;
+      item14_totalAdmin: number;
+      item15_monthlyCE: number;
+      item16_cumulativeCE: number;
+      item17_employees: number;
+      item18_totalMembers: number;
+      item19_pepm: number;
+      item20_actualPepm: number;
+      item22_budgetedPremium: number;
+      item23_budgetedPepm: number;
+      item24_budgetedPercentage: number;
+    }
+
+    const monthlyResults: MonthlyResult[] = snapshots.map(snapshot => {
       const monthKey = snapshot.monthDate.toISOString().substring(0, 7);
       const monthAdjustments = adjustmentsByMonth[monthKey] || {};
 
@@ -150,27 +178,40 @@ export async function POST(request: NextRequest) {
     });
 
     // Calculate cumulative totals
-    const cumulative = monthlyResults.reduce((acc, month, index) => {
-      const prev = index > 0 ? acc[index - 1] : null;
+    const cumulative = monthlyResults.reduce<Array<{
+      monthKey: string;
+      item1_paidClaims: number;
+      item5_totalAllMedical: number;
+      item7_totalAdjustedMedical: number;
+      item8_totalRx: number;
+      item9_rxRebates: number;
+      item10_stopLossFees: number;
+      item11_stopLossReimbursement: number;
+      item14_totalAdmin: number;
+      item15_monthlyCE: number;
+      item16_cumulativeCE: number;
+      item22_budgetedPremium: number;
+    }>>((acc, month) => {
+      const prev = acc[acc.length - 1];
 
-      return [
-        ...acc,
-        {
-          monthKey: month.monthKey,
-          item1_paidClaims: (prev?.item1_paidClaims || 0) + month.item1_paidClaims,
-          item5_totalAllMedical: (prev?.item5_totalAllMedical || 0) + month.item5_totalAllMedical,
-          item7_totalAdjustedMedical: (prev?.item7_totalAdjustedMedical || 0) + month.item7_totalAdjustedMedical,
-          item8_totalRx: (prev?.item8_totalRx || 0) + month.item8_totalRx,
-          item9_rxRebates: (prev?.item9_rxRebates || 0) + month.item9_rxRebates,
-          item10_stopLossFees: (prev?.item10_stopLossFees || 0) + month.item10_stopLossFees,
-          item11_stopLossReimbursement: (prev?.item11_stopLossReimbursement || 0) + month.item11_stopLossReimbursement,
-          item14_totalAdmin: (prev?.item14_totalAdmin || 0) + month.item14_totalAdmin,
-          item15_monthlyCE: (prev?.item15_monthlyCE || 0) + month.item15_monthlyCE,
-          item16_cumulativeCE: month.item15_monthlyCE + (prev?.item16_cumulativeCE || 0),
-          item22_budgetedPremium: (prev?.item22_budgetedPremium || 0) + month.item22_budgetedPremium
-        }
-      ];
-    }, [] as any[]);
+      const nextEntry = {
+        monthKey: month.monthKey,
+        item1_paidClaims: (prev?.item1_paidClaims ?? 0) + month.item1_paidClaims,
+        item5_totalAllMedical: (prev?.item5_totalAllMedical ?? 0) + month.item5_totalAllMedical,
+        item7_totalAdjustedMedical: (prev?.item7_totalAdjustedMedical ?? 0) + month.item7_totalAdjustedMedical,
+        item8_totalRx: (prev?.item8_totalRx ?? 0) + month.item8_totalRx,
+        item9_rxRebates: (prev?.item9_rxRebates ?? 0) + month.item9_rxRebates,
+        item10_stopLossFees: (prev?.item10_stopLossFees ?? 0) + month.item10_stopLossFees,
+        item11_stopLossReimbursement: (prev?.item11_stopLossReimbursement ?? 0) + month.item11_stopLossReimbursement,
+        item14_totalAdmin: (prev?.item14_totalAdmin ?? 0) + month.item14_totalAdmin,
+        item15_monthlyCE: (prev?.item15_monthlyCE ?? 0) + month.item15_monthlyCE,
+        item16_cumulativeCE: month.item15_monthlyCE + (prev?.item16_cumulativeCE ?? 0),
+        item22_budgetedPremium: (prev?.item22_budgetedPremium ?? 0) + month.item22_budgetedPremium
+      };
+
+      acc.push(nextEntry);
+      return acc;
+    }, []);
 
     // Get latest month for KPIs
     const latestMonth = monthlyResults[monthlyResults.length - 1];

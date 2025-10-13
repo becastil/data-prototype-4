@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 
 const prisma = new PrismaClient();
+
+function toJsonValue(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
+}
 
 /**
  * GET /api/fees
@@ -215,7 +219,7 @@ export async function POST(request: NextRequest) {
         entityId: result.id,
         action: data.id ? 'UPDATE' : 'CREATE',
         before: {},
-        after: result as any
+        after: toJsonValue(result)
       }
     });
 
@@ -291,7 +295,7 @@ export async function DELETE(request: NextRequest) {
           entity: 'ADMIN_FEE',
           entityId: id,
           action: 'DELETE',
-          before: fee as any,
+          before: toJsonValue(fee),
           after: {}
         }
       });
@@ -329,7 +333,7 @@ export async function DELETE(request: NextRequest) {
           entity: 'USER_ADJUSTMENT',
           entityId: id,
           action: 'DELETE',
-          before: adjustment as any,
+          before: toJsonValue(adjustment),
           after: {}
         }
       });

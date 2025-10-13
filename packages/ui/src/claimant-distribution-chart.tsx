@@ -8,6 +8,7 @@ export interface ClaimantBucket {
   value: number;
   count: number;
   color: string;
+  [key: string]: string | number;
 }
 
 export interface ClaimantDistributionChartProps {

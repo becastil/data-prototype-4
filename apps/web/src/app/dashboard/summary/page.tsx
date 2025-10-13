@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Download, FileText, Settings } from 'lucide-react';
+import { Download, Settings } from 'lucide-react';
 
 /**
  * C&E 28-Row Summary Page
@@ -15,35 +15,6 @@ import { Download, FileText, Settings } from 'lucide-react';
  */
 
 const monthColumns = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-
-// Sample C&E data structure
-const ceData = {
-  // Medical (#1-7)
-  item1_domesticInpatient: [45000, 42000, 48000, 51000, 53000, 49000],
-  item2_domesticOutpatient: [38000, 35000, 41000, 43000, 45000, 42000],
-  item4_nonHospitalMedical: [28000, 26000, 29000, 31000, 32000, 30000],
-  item6_ucSettlement: [0, 0, 0, 0, 0, 0], // User-adjustable
-
-  // Pharmacy (#8-9)
-  item8_totalRx: [55000, 52000, 58000, 60000, 62000, 59000],
-  item9_rxRebates: [-35000, -33000, -37000, -38000, -39000, -37000], // User-adjustable
-
-  // Stop Loss (#10-11)
-  item10_stopLossFeesSingle: [15000, 15000, 15000, 15000, 15000, 15000],
-  item10_stopLossFeesFamily: [25000, 25000, 25000, 25000, 25000, 25000],
-  item11_stopLossReimbursement: [0, 0, 0, 0, 0, 40000], // User-adjustable
-
-  // Admin (#12-14)
-  item12_consultingFees: [8000, 8000, 8000, 8000, 8000, 8000],
-  item13_individualFees: [13000, 13000, 13000, 13000, 13000, 13000],
-
-  // Enrollment (#17-18)
-  item17_eeCount: [450, 452, 448, 455, 457, 460],
-  item18_memberCount: [1100, 1105, 1095, 1112, 1118, 1125],
-
-  // Budget (#22)
-  item22_pepmBudget: [950, 950, 950, 950, 950, 950]
-};
 
 const rowDefinitions = [
   // Medical
@@ -94,9 +65,16 @@ const rowDefinitions = [
 ];
 
 export default function CESummaryPage() {
+  const [isExporting, setIsExporting] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     new Set(['Medical', 'Pharmacy', 'Stop Loss', 'Admin', 'Totals', 'Enrollment', 'PEPM', 'Budget', 'Variance'])
   );
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    setIsExporting(false);
+  };
 
   const toggleGroup = (group: string) => {
     const newExpanded = new Set(expandedGroups);
@@ -132,9 +110,23 @@ export default function CESummaryPage() {
             <Settings className="w-4 h-4" />
             Adjustments
           </button>
-          <button className="px-4 py-2 bg-accent-primary text-base-950 rounded-card font-medium hover:bg-emerald-400 transition-uber inline-flex items-center gap-2">
-            <Download className="w-4 h-4" />
-            Export CSV
+          <button
+            onClick={handleExport}
+            disabled={isExporting}
+            className="px-4 py-2 bg-accent-primary text-base-950 rounded-card font-medium hover:bg-emerald-400 transition-uber inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="Export to CSV"
+          >
+            {isExporting ? (
+              <>
+                <div className="w-4 h-4 border-2 border-base-950 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+                Exporting...
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4" aria-hidden="true" />
+                Export CSV
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -144,7 +136,7 @@ export default function CESummaryPage() {
         <div className="kpi-pill">
           <div className="text-xs text-slate-400 mb-1">Monthly C&E (#15)</div>
           <div className="text-2xl font-bold">$456K</div>
-          <div className="text-xs text-slate-500 mt-1">June 2025</div>
+          <div className="text-xs text-slate-500 mt-1">Dec 2024</div>
         </div>
         <div className="kpi-pill">
           <div className="text-xs text-slate-400 mb-1">PEPM Actual (#19)</div>
@@ -159,7 +151,7 @@ export default function CESummaryPage() {
         <div className="kpi-pill">
           <div className="text-xs text-slate-400 mb-1">Cumulative (#16)</div>
           <div className="text-2xl font-bold">$2.73M</div>
-          <div className="text-xs text-slate-500 mt-1">YTD through Jun</div>
+          <div className="text-xs text-slate-500 mt-1">YTD through Dec</div>
         </div>
       </div>
 
@@ -214,7 +206,7 @@ export default function CESummaryPage() {
                           )}
                         </div>
                         {row.formula && (
-                          <div className="text-xs text-slate-500 mt-0.5">{row.formula}</div>
+                          <div className="text-xs text-slate-400 mt-0.5 font-mono">{row.formula}</div>
                         )}
                       </td>
                       {monthColumns.map((_, idx) => (

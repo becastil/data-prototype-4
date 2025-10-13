@@ -1,48 +1,177 @@
+'use client';
+
+import React from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Download, TrendingDown, TrendingUp } from 'lucide-react';
+import { PlanYtdChart } from '@medical-reporting/ui';
+import { generateExecutiveObservation } from '@medical-reporting/lib/formulas/executive';
+import type {
+  ExecutiveYtdResult,
+  MonthlyColumnsResult,
+} from '@medical-reporting/lib/types';
 
-/**
- * Executive Summary Page (Template PDF Page 2)
- *
- * Components:
- * - Fuel gauge with thresholds (Green <95%, Yellow 95-105%, Red >105%)
- * - Plan YTD stacked bars (Admin, Stop Loss, Net Med+Rx, offsets, Premium line)
- * - KPI tiles (Budget, Paid, Net, Admin, Stop Loss, IBNR, Cost, Surplus, %, PEPMs)
- * - Distribution charts (Med vs Rx, Plan mix, High-claim buckets)
- */
+const DEFAULT_CLIENT_ID = '00000000-0000-0000-0000-000000000001';
+const DEFAULT_PLAN_YEAR_ID = '00000000-0000-0000-0000-000000000301';
 
-// Sample data matching golden seed targets
-const ytdData = {
-  budgetedPremium: 5585653,
-  totalPaid: 5178492,
-  netPaid: 4191305,
-  adminFees: 258894,
-  stopLossFees: 817983,
-  ibnr: 0,
-  totalPlanCost: 5268182,
-  surplusDeficit: 317471,
-  percentOfBudget: 0.9432, // 94.32%
-  fuelGaugeStatus: 'GREEN' as const,
-  medicalTotal: 4499969,
-  rxTotal: 678522,
-  medicalPercent: 0.869,
-  rxPercent: 0.131,
-  specStopLossReimb: -563512,
-  estRxRebates: -423675,
+type PlanMixEntry = {
+  planName: string;
+  totalCost: number;
+  percent: number;
 };
 
-const planMix = [
-  { name: 'HDHP', cost: 2200000, percent: 0.42 },
-  { name: 'PPO Base', cost: 2000000, percent: 0.38 },
-  { name: 'PPO Buy-Up', cost: 1068182, percent: 0.20 },
-];
+type ClaimantBucketsResponse = {
+  over200k: { count: number; total: number };
+  range100to200k: { count: number; total: number };
+  under100k: { count: number; total: number };
+};
 
-const claimantBuckets = [
-  { range: '$200K+', count: 4, total: 950000 },
-  { range: '$100K-$200K', count: 6, total: 720000 },
-  { range: 'Other', count: 890, total: 3508492 },
-];
+interface ExecutiveSummaryPayload {
+  executiveYtd: ExecutiveYtdResult;
+  planMix: PlanMixEntry[];
+  claimantBuckets: ClaimantBucketsResponse;
+  monthlyResults: MonthlyColumnsResult[];
+}
+
+const currencyFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0,
+});
 
 export default function ExecutiveSummaryPage() {
+  const searchParams = useSearchParams();
+  const clientId = searchParams.get('clientId') ?? DEFAULT_CLIENT_ID;
+  const planYearId = searchParams.get('planYearId') ?? DEFAULT_PLAN_YEAR_ID;
+  const through = searchParams.get('through');
+
+  const [isExporting, setIsExporting] = React.useState(false);
+  const [payload, setPayload] = React.useState<ExecutiveSummaryPayload | null>(
+    null,
+  );
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let isActive = true;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const query = new URLSearchParams({ clientId, planYearId });
+        if (through) {
+          query.set('through', through);
+        }
+
+        const response = await fetch(`/api/exec-summary?${query.toString()}`);
+        const body = await response
+          .json()
+          .catch(() => ({ error: 'Failed to load executive summary.' }));
+
+        if (!response.ok) {
+          throw new Error(body?.error ?? 'Failed to load executive summary.');
+        }
+
+        if (isActive) {
+          setPayload(body as ExecutiveSummaryPayload);
+        }
+      } catch (fetchError) {
+        if (isActive) {
+          const message =
+            fetchError instanceof Error
+              ? fetchError.message
+              : 'Failed to load executive summary.';
+          setError(message);
+          setPayload(null);
+        }
+      } finally {
+        if (isActive) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void load();
+
+    return () => {
+      isActive = false;
+    };
+  }, [clientId, planYearId, through]);
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    setIsExporting(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="p-8">
+        <div className="report-card animate-pulse p-8 text-slate-400">
+          Loading executive summary...
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-8">
+        <div className="report-card border border-status-red/40 bg-status-red/10 p-6 text-status-red">
+          {error}
+        </div>
+      </div>
+    );
+  }
+
+  if (!payload) {
+    return (
+      <div className="p-8">
+        <div className="report-card p-6 text-slate-400">
+          No executive summary data available.
+        </div>
+      </div>
+    );
+  }
+
+  const ytdData = payload.executiveYtd;
+
+  const offsets = payload.monthlyResults.reduce(
+    (acc, month) => {
+      acc.stopLossReimb += month.specStopLossReimb;
+      acc.rxRebates += month.estRxRebates;
+      return acc;
+    },
+    { stopLossReimb: 0, rxRebates: 0 },
+  );
+
+  const planMix = payload.planMix.map((plan) => ({
+    name: plan.planName,
+    percent: plan.percent,
+    cost: plan.totalCost,
+  }));
+
+  const claimantBuckets = [
+    {
+      range: '$200K+',
+      count: payload.claimantBuckets.over200k.count,
+      total: payload.claimantBuckets.over200k.total,
+    },
+    {
+      range: '$100K-$200K',
+      count: payload.claimantBuckets.range100to200k.count,
+      total: payload.claimantBuckets.range100to200k.total,
+    },
+    {
+      range: 'Other',
+      count: payload.claimantBuckets.under100k.count,
+      total: payload.claimantBuckets.under100k.total,
+    },
+  ];
+
+  const observationText = generateExecutiveObservation(ytdData);
+
   const fuelGaugeColor =
     ytdData.fuelGaugeStatus === 'GREEN'
       ? 'fuel-gauge-green'
@@ -58,9 +187,26 @@ export default function ExecutiveSummaryPage() {
           <h1 className="text-3xl font-bold">Executive Summary</h1>
           <p className="text-slate-400 mt-2">Year-to-date performance analysis</p>
         </div>
-        <button className="px-4 py-2 bg-accent-primary text-base-950 rounded-card font-medium hover:bg-emerald-400 transition-uber inline-flex items-center gap-2">
-          <Download className="w-4 h-4" />
-          Export PDF
+        <button
+          onClick={handleExport}
+          disabled={isExporting}
+          className="px-4 py-2 bg-accent-primary text-base-950 rounded-card font-medium hover:bg-emerald-400 transition-uber inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          aria-label="Export to PDF"
+        >
+          {isExporting ? (
+            <>
+              <div
+                className="w-4 h-4 border-2 border-base-950 border-t-transparent rounded-full animate-spin"
+                aria-hidden="true"
+              />
+              Exporting...
+            </>
+          ) : (
+            <>
+              <Download className="w-4 h-4" aria-hidden="true" />
+              Export PDF
+            </>
+          )}
         </button>
       </div>
 
@@ -97,24 +243,26 @@ export default function ExecutiveSummaryPage() {
             <div className="flex justify-between text-sm">
               <span className="text-slate-400">Budgeted Premium</span>
               <span className="font-semibold">
-                ${ytdData.budgetedPremium.toLocaleString()}
+                {currencyFormatter.format(ytdData.budgetedPremium)}
               </span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-400">Total Plan Cost</span>
               <span className="font-semibold">
-                ${ytdData.totalPlanCost.toLocaleString()}
+                {currencyFormatter.format(ytdData.totalPlanCost)}
               </span>
             </div>
             <div className="flex justify-between text-sm pt-2 border-t border-slate-700">
               <span className="text-slate-400">Surplus/Deficit</span>
-              <span className={`font-semibold flex items-center gap-1 ${ytdData.surplusDeficit >= 0 ? 'text-status-green' : 'text-status-red'}`}>
+              <span
+                className={`font-semibold flex items-center gap-1 ${ytdData.surplusDeficit >= 0 ? 'text-status-green' : 'text-status-red'}`}
+              >
                 {ytdData.surplusDeficit >= 0 ? (
                   <TrendingUp className="w-4 h-4" />
                 ) : (
                   <TrendingDown className="w-4 h-4" />
                 )}
-                ${Math.abs(ytdData.surplusDeficit).toLocaleString()}
+                {currencyFormatter.format(Math.abs(ytdData.surplusDeficit))}
               </span>
             </div>
           </div>
@@ -126,71 +274,52 @@ export default function ExecutiveSummaryPage() {
         <div className="kpi-pill">
           <div className="text-xs text-slate-400 mb-1">Total Paid</div>
           <div className="text-lg font-bold">
-            ${(ytdData.totalPaid / 1000000).toFixed(2)}M
+            {(ytdData.totalPaid / 1_000_000).toFixed(2)}M
           </div>
         </div>
         <div className="kpi-pill">
           <div className="text-xs text-slate-400 mb-1">Net Paid</div>
           <div className="text-lg font-bold">
-            ${(ytdData.netPaid / 1000000).toFixed(2)}M
+            {(ytdData.netPaid / 1_000_000).toFixed(2)}M
           </div>
         </div>
         <div className="kpi-pill">
           <div className="text-xs text-slate-400 mb-1">Admin Fees</div>
           <div className="text-lg font-bold">
-            ${(ytdData.adminFees / 1000).toFixed(0)}K
+            {(ytdData.adminFees / 1_000).toFixed(0)}K
           </div>
         </div>
         <div className="kpi-pill">
           <div className="text-xs text-slate-400 mb-1">Stop Loss Fees</div>
           <div className="text-lg font-bold">
-            ${(ytdData.stopLossFees / 1000).toFixed(0)}K
+            {(ytdData.stopLossFees / 1_000).toFixed(0)}K
           </div>
         </div>
         <div className="kpi-pill">
           <div className="text-xs text-slate-400 mb-1">IBNR</div>
-          <div className="text-lg font-bold">${ytdData.ibnr.toLocaleString()}</div>
+          <div className="text-lg font-bold">
+            {currencyFormatter.format(ytdData.ibnr)}
+          </div>
         </div>
       </div>
 
       {/* Plan YTD Stacked Bars */}
       <div className="report-card">
         <h2 className="text-xl font-semibold mb-6">Plan Year-to-Date Breakdown</h2>
-        <div className="space-y-4">
-          {/* Placeholder for stacked bar chart */}
-          <div className="h-64 bg-base-950 rounded-card border border-slate-700 flex items-center justify-center">
-            <div className="text-center text-slate-500">
-              <div className="text-sm">Stacked Bar Chart</div>
-              <div className="text-xs mt-1">
-                Admin | Stop Loss | Net Med+Rx | Spec Stop Loss Reimb (hatched) | Est Rx
-                Rebates (hatched)
-              </div>
-              <div className="text-xs">Budgeted Premium (line overlay)</div>
-            </div>
-          </div>
-          <div className="flex justify-center gap-6 text-xs">
-            <span className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-sky-500" />
-              Admin Fees
-            </span>
-            <span className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-amber-500" />
-              Stop Loss Fees
-            </span>
-            <span className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-emerald-500" />
-              Net Med+Rx
-            </span>
-            <span className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-purple-500" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0,0,0,0.3) 2px, rgba(0,0,0,0.3) 4px)' }} />
-              Stop Loss Reimb
-            </span>
-            <span className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-pink-500" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0,0,0,0.3) 2px, rgba(0,0,0,0.3) 4px)' }} />
-              Rx Rebates
-            </span>
-          </div>
-        </div>
+        <PlanYtdChart
+          data={[
+            {
+              planName: 'YTD Total',
+              adminFees: ytdData.adminFees,
+              stopLossFees: ytdData.stopLossFees,
+              netMedRx: ytdData.netPaid,
+              stopLossReimb: offsets.stopLossReimb,
+              rxRebates: offsets.rxRebates,
+              budgetedPremium: ytdData.budgetedPremium,
+            },
+          ]}
+          showBreakdown={true}
+        />
       </div>
 
       {/* Distribution Row */}
@@ -238,7 +367,9 @@ export default function ExecutiveSummaryPage() {
               <div key={plan.name}>
                 <div className="flex justify-between text-sm mb-1">
                   <span>{plan.name}</span>
-                  <span className="font-semibold">{(plan.percent * 100).toFixed(0)}%</span>
+                  <span className="font-semibold">
+                    {(plan.percent * 100).toFixed(0)}%
+                  </span>
                 </div>
                 <div className="h-2 bg-base-950 rounded-full overflow-hidden">
                   <div
@@ -261,7 +392,7 @@ export default function ExecutiveSummaryPage() {
                 <div className="text-right">
                   <div className="font-semibold">{bucket.count} claimants</div>
                   <div className="text-xs text-slate-500">
-                    ${(bucket.total / 1000).toFixed(0)}K
+                    {(bucket.total / 1_000).toFixed(0)}K
                   </div>
                 </div>
               </div>
@@ -277,10 +408,7 @@ export default function ExecutiveSummaryPage() {
           Observations
         </h3>
         <p className="text-sm text-slate-300">
-          Plan is under budget for the rolling 12 and current plan year to date. Medical
-          claims represent {(ytdData.medicalPercent * 100).toFixed(1)}% of total paid,
-          pharmacy {(ytdData.rxPercent * 100).toFixed(1)}%. Year-to-date surplus: $
-          {ytdData.surplusDeficit.toLocaleString()}.
+          {observationText || 'Executive summary insights will appear once data is available.'}
         </p>
       </div>
     </div>

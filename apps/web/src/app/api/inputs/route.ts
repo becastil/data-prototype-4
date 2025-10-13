@@ -1,7 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 
 const prisma = new PrismaClient();
+
+type OtherInputPayload = Partial<{
+  rxRebatePepmEstimate: number;
+  ibnrAdjustment: number;
+  aggregateFactor: number;
+  aslFee: number;
+  notes: string;
+}>;
+
+type StopLossFeeUpdatePayload = {
+  id: string;
+  islRate?: number | null;
+  ratePerEe?: number | null;
+  aslRate?: number | null;
+};
+
+const toJsonValue = (value: unknown): Prisma.InputJsonValue =>
+  JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
 
 /**
  * GET /api/inputs
@@ -72,17 +90,28 @@ export async function GET(request: NextRequest) {
     ]);
 
     // Parse other inputs into structured format
-    const otherInputsMap = otherInputs.reduce((acc, input) => {
-      // Input table structure needs key field
-      const key = (input as any).key;
-      if (key) {
-        acc[key] = {
-          value: Number((input as any).value || 0),
-          notes: input.notes || ''
-        };
-      }
-      return acc;
-    }, {} as Record<string, { value: number; notes: string }>);
+    const otherInputsRecord = otherInputs.at(0);
+
+    const otherInputsMap = otherInputsRecord
+      ? {
+          rxRebatePepmEstimate: {
+            value: Number(otherInputsRecord.rxRebatePepmEstimate),
+            notes: otherInputsRecord.notes || ''
+          },
+          ibnrAdjustment: {
+            value: Number(otherInputsRecord.ibnrAdjustment),
+            notes: otherInputsRecord.notes || ''
+          },
+          aggregateFactor: {
+            value: Number(otherInputsRecord.aggregateFactor),
+            notes: otherInputsRecord.notes || ''
+          },
+          aslFee: {
+            value: Number(otherInputsRecord.aslFee),
+            notes: otherInputsRecord.notes || ''
+          }
+        }
+      : {};
 
     // Calculate totals
     const totalAdminFees = adminFeeComponents
@@ -195,12 +224,12 @@ export async function PUT(request: NextRequest) {
     // Update Stop Loss Fees by Tier
     if (stopLossFeesByTier && Array.isArray(stopLossFeesByTier)) {
       await Promise.all(
-        stopLossFeesByTier.map((sl: any) =>
+        stopLossFeesByTier.map((sl: StopLossFeeUpdatePayload) =>
           prisma.stopLossFeeByTier.update({
             where: { id: sl.id },
             data: {
-              islRate: sl.islRate || sl.ratePerEe || 0,
-              aslRate: sl.aslRate || 0
+              islRate: Number(sl.islRate ?? sl.ratePerEe ?? 0),
+              aslRate: Number(sl.aslRate ?? 0)
             }
           })
         )
@@ -211,27 +240,20 @@ export async function PUT(request: NextRequest) {
     // TODO: Implement proper update logic for Input model
     // The Input model has specific fields, not a generic key-value structure
     if (otherInputs && typeof otherInputs === 'object') {
-      const inputData = await prisma.input.findUnique({
-        where: {
-          clientId_planYearId: {
-            clientId,
-            planYearId
-          }
-        }
-      });
+      const payload = otherInputs as OtherInputPayload;
 
-      const updateData: any = {};
-      if (otherInputs.rxRebatePepmEstimate !== undefined) {
-        updateData.rxRebatePepmEstimate = Number(otherInputs.rxRebatePepmEstimate);
+      const updateData: OtherInputPayload = {};
+      if (payload.rxRebatePepmEstimate !== undefined) {
+        updateData.rxRebatePepmEstimate = Number(payload.rxRebatePepmEstimate);
       }
-      if (otherInputs.ibnrAdjustment !== undefined) {
-        updateData.ibnrAdjustment = Number(otherInputs.ibnrAdjustment);
+      if (payload.ibnrAdjustment !== undefined) {
+        updateData.ibnrAdjustment = Number(payload.ibnrAdjustment);
       }
-      if (otherInputs.aggregateFactor !== undefined) {
-        updateData.aggregateFactor = Number(otherInputs.aggregateFactor);
+      if (payload.aggregateFactor !== undefined) {
+        updateData.aggregateFactor = Number(payload.aggregateFactor);
       }
-      if (otherInputs.aslFee !== undefined) {
-        updateData.aslFee = Number(otherInputs.aslFee);
+      if (payload.aslFee !== undefined) {
+        updateData.aslFee = Number(payload.aslFee);
       }
 
       if (Object.keys(updateData).length > 0) {
@@ -264,7 +286,7 @@ export async function PUT(request: NextRequest) {
           entityId: planYearId,
           action: 'UPDATE',
           before: {},
-          after: body as any
+          after: toJsonValue(body)
         }
       });
     }

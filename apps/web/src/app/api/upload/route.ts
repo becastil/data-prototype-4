@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma, Plan } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -26,25 +26,27 @@ interface ValidationError {
  * Save monthly data to database
  * Extracted from PUT endpoint to be reusable
  */
+const toJsonValue = (value: unknown): Prisma.InputJsonValue =>
+  JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
+
 async function saveMonthlyData(
   clientId: string,
   planYearId: string,
-  dataRows: CsvRow[],
-  fileType: string
+  dataRows: CsvRow[]
 ): Promise<{ monthsImported: number; rowsImported: number }> {
   // Get all plans for this client
   const plans = await prisma.plan.findMany({
     where: { clientId }
   });
 
-  const plansByCode = plans.reduce((acc, plan) => {
+  const plansByCode = plans.reduce<Record<string, Plan>>((acc, plan) => {
     const key = (plan.code || plan.name).toLowerCase();
     acc[key] = plan;
     return acc;
-  }, {} as Record<string, any>);
+  }, {});
 
   // Group by month
-  const byMonth = dataRows.reduce((acc: any, row: CsvRow) => {
+  const byMonth = dataRows.reduce<Record<string, CsvRow[]>>((acc, row) => {
     if (!acc[row.month]) {
       acc[row.month] = [];
     }
@@ -55,7 +57,8 @@ async function saveMonthlyData(
   let rowsImported = 0;
 
   // Insert data month by month
-  for (const [month, monthRows] of Object.entries(byMonth) as [string, CsvRow[]][]) {
+  for (const month of Object.keys(byMonth)) {
+    const monthRows = byMonth[month];
     // Create or update month snapshot
     const snapshot = await prisma.monthSnapshot.upsert({
       where: {
@@ -130,7 +133,7 @@ async function saveMonthlyData(
         entityId: planYearId,
         action: 'UPLOAD',
         before: {},
-        after: { rowCount: dataRows.length, months: Object.keys(byMonth) } as any
+        after: toJsonValue({ rowCount: dataRows.length, months: Object.keys(byMonth) })
       }
     });
   }
@@ -244,49 +247,50 @@ export async function POST(request: NextRequest) {
     // Parse and validate data rows
     for (let i = 1; i < lines.length; i++) {
       const values = lines[i].split(',').map(v => v.trim());
-      const row: any = {};
+      const rawRow: Record<string, string> = {};
 
       // Use the header map to assign values correctly
       Object.entries(headerMap).forEach(([index, mappedName]) => {
-        row[mappedName] = values[parseInt(index)];
+        const position = Number.parseInt(index, 10);
+        rawRow[mappedName] = values[position];
       });
 
       // Validate based on file type
       if (fileType === 'monthly') {
         // Validate month format (YYYY-MM)
-        if (!/^\d{4}-\d{2}$/.test(row.month)) {
+        if (!/^\d{4}-\d{2}$/.test(rawRow.month)) {
           errors.push({
             row: i + 1,
             field: 'month',
-            message: `Invalid month format. Expected YYYY-MM, got ${row.month}`
+            message: `Invalid month format. Expected YYYY-MM, got ${rawRow.month}`
           });
         }
 
         // Validate numeric fields
         const numericFields = ['subscribers', 'medical_paid', 'rx_paid', 'budgeted_premium'];
         numericFields.forEach(field => {
-          const value = parseFloat(row[field]);
-          if (isNaN(value)) {
+          const value = Number.parseFloat(rawRow[field]);
+          if (Number.isNaN(value)) {
             errors.push({
               row: i + 1,
               field,
-              message: `Invalid number: ${row[field]}`
+              message: `Invalid number: ${rawRow[field]}`
             });
           }
         });
 
         // Parse the row - plan comes from form data, not CSV
         const parsedRow: CsvRow = {
-          month: row.month,
-          plan: row.plan || fileType, // Use fileType as plan identifier if no plan column
-          subscribers: parseInt(row.subscribers) || 0,
-          medicalPaid: parseFloat(row.medical_paid) || 0,
-          rxPaid: parseFloat(row.rx_paid) || 0,
-          stopLossReimb: parseFloat(row.stop_loss_reimb) || 0,
-          rxRebates: parseFloat(row.rx_rebates) || 0,
-          adminFees: parseFloat(row.admin_fees) || 0,
-          stopLossFees: parseFloat(row.stop_loss_fees) || 0,
-          budgetedPremium: parseFloat(row.budgeted_premium) || 0
+          month: rawRow.month,
+          plan: rawRow.plan || fileType,
+          subscribers: Number.parseInt(rawRow.subscribers, 10) || 0,
+          medicalPaid: Number.parseFloat(rawRow.medical_paid) || 0,
+          rxPaid: Number.parseFloat(rawRow.rx_paid) || 0,
+          stopLossReimb: Number.parseFloat(rawRow.stop_loss_reimb) || 0,
+          rxRebates: Number.parseFloat(rawRow.rx_rebates) || 0,
+          adminFees: Number.parseFloat(rawRow.admin_fees) || 0,
+          stopLossFees: Number.parseFloat(rawRow.stop_loss_fees) || 0,
+          budgetedPremium: Number.parseFloat(rawRow.budgeted_premium) || 0
         };
 
         rows.push(parsedRow);
@@ -307,7 +311,7 @@ export async function POST(request: NextRequest) {
 
     // Separate data rows from sum/total rows
     const dataRows: CsvRow[] = [];
-    let sumRow: CsvRow | undefined = undefined;
+    let sumRow: CsvRow | undefined;
 
     rows.forEach(row => {
       const monthStr = row.month.toLowerCase();
@@ -472,7 +476,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Save data to database
-    const importResult = await saveMonthlyData(clientId, planYearId, dataRows, fileType);
+    const importResult = await saveMonthlyData(clientId, planYearId, dataRows);
 
     // Return success with saved data confirmation
     return NextResponse.json({
@@ -529,19 +533,23 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    const incomingRows: CsvRow[] = Array.isArray(data)
+      ? data as CsvRow[]
+      : [];
+
     // Get all plans for this client
     const plans = await prisma.plan.findMany({
       where: { clientId }
     });
 
-    const plansByCode = plans.reduce((acc, plan) => {
+    const plansByCode = plans.reduce<Record<string, Plan>>((acc, plan) => {
       const key = (plan.code || plan.name).toLowerCase();
       acc[key] = plan;
       return acc;
-    }, {} as Record<string, any>);
+    }, {});
 
     // Group by month
-    const byMonth = data.reduce((acc: any, row: CsvRow) => {
+    const byMonth = incomingRows.reduce<Record<string, CsvRow[]>>((acc, row) => {
       if (!acc[row.month]) {
         acc[row.month] = [];
       }
@@ -550,7 +558,8 @@ export async function PUT(request: NextRequest) {
     }, {});
 
     // Insert data month by month
-    for (const [month, monthRows] of Object.entries(byMonth) as [string, CsvRow[]][]) {
+    for (const month of Object.keys(byMonth)) {
+      const monthRows = byMonth[month];
       // Create or update month snapshot
       const snapshot = await prisma.monthSnapshot.upsert({
         where: {
@@ -623,14 +632,14 @@ export async function PUT(request: NextRequest) {
           entityId: planYearId,
           action: 'UPLOAD',
           before: {},
-          after: { rowCount: data.length, months: Object.keys(byMonth) } as any
+          after: toJsonValue({ rowCount: incomingRows.length, months: Object.keys(byMonth) })
         }
       });
     }
 
     return NextResponse.json({
       success: true,
-      message: `Successfully imported ${data.length} rows`,
+      message: `Successfully imported ${incomingRows.length} rows`,
       monthsImported: Object.keys(byMonth).length
     });
 

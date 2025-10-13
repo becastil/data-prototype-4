@@ -23,7 +23,9 @@
       "@/*": ["./src/*"],
       "@/ui": ["../../packages/ui/src"],
       "@/lib": ["../../packages/lib/src"],
+      "@medical-reporting/lib": ["../../packages/lib/src/index.ts"],
       "@medical-reporting/lib/*": ["../../packages/lib/src/*"],
+      "@medical-reporting/ui": ["../../packages/ui/src/index.tsx"],
       "@medical-reporting/ui/*": ["../../packages/ui/src/*"]
     }
   },

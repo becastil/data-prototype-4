@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { processHighClaimants } from '@medical-reporting/lib/formulas/high-claimants';
+import type { HighClaimantResult } from '@medical-reporting/lib/types';
 
 const prisma = new PrismaClient();
 
@@ -72,17 +73,24 @@ export async function GET(request: NextRequest) {
 
     // Filter by minimum percentage threshold
     const qualifyingThreshold = islThreshold * minPercentThreshold;
-    const qualifyingClaimants = result.claimants.filter(
-      (c: any) => c.totalPaid >= qualifyingThreshold
+    const qualifyingClaimants: HighClaimantResult[] = result.claimants.filter(
+      claimant => claimant.totalPaid >= qualifyingThreshold
     );
 
     // Recalculate summary for qualifying claimants only
-    const summary = qualifyingClaimants.reduce(
-      (acc: any, c: any) => ({
-        count: acc.count + 1,
-        totalPaid: acc.totalPaid + c.totalPaid,
-        employerShare: acc.employerShare + c.employerShare,
-        stopLossShare: acc.stopLossShare + c.stopLossShare
+    type SummaryTotals = {
+      count: number;
+      totalPaid: number;
+      employerShare: number;
+      stopLossShare: number;
+    };
+
+    const summary = qualifyingClaimants.reduce<SummaryTotals>(
+      (accumulator, claimant) => ({
+        count: accumulator.count + 1,
+        totalPaid: accumulator.totalPaid + claimant.totalPaid,
+        employerShare: accumulator.employerShare + claimant.employerShare,
+        stopLossShare: accumulator.stopLossShare + claimant.stopLossShare
       }),
       {
         count: 0,
