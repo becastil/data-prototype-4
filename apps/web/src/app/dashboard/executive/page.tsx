@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Download, TrendingDown, TrendingUp } from 'lucide-react';
 import { PlanYtdChart } from '@medical-reporting/ui';
@@ -38,7 +38,7 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 0,
 });
 
-export default function ExecutiveSummaryPage() {
+function ExecutiveSummaryPageContent() {
   const searchParams = useSearchParams();
   const clientId = searchParams.get('clientId') ?? DEFAULT_CLIENT_ID;
   const planYearId = searchParams.get('planYearId') ?? DEFAULT_PLAN_YEAR_ID;
@@ -412,5 +412,19 @@ export default function ExecutiveSummaryPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function ExecutiveSummaryPage() {
+  return (
+    <Suspense fallback={
+      <div className="p-8">
+        <div className="report-card animate-pulse p-8 text-slate-400">
+          Loading executive summary...
+        </div>
+      </div>
+    }>
+      <ExecutiveSummaryPageContent />
+    </Suspense>
   );
 }

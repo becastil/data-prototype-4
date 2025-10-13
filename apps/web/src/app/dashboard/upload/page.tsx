@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   Upload,
@@ -75,7 +75,7 @@ function formatSampleValue(key: string, value: unknown) {
   return String(value);
 }
 
-export default function UploadPage() {
+function UploadPageContent() {
   const searchParams = useSearchParams();
   const clientId = searchParams.get('clientId') ?? DEFAULT_CLIENT_ID;
   const planYearId = searchParams.get('planYearId') ?? DEFAULT_PLAN_YEAR_ID;
@@ -252,7 +252,7 @@ export default function UploadPage() {
       <div className="flex items-center justify-center gap-4">
         <div
           className={`flex items-center gap-2 ${
-            currentStep === 'upload' ? 'text-accent-primary' : currentStep !== 'upload' ? 'text-status-green' : 'text-slate-500'
+            currentStep === 'upload' ? 'text-accent-primary' : 'text-status-green'
           }`}
         >
           <div
@@ -553,5 +553,21 @@ export default function UploadPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function UploadPage() {
+  return (
+    <Suspense fallback={
+      <div className="p-8 space-y-8">
+        <div className="report-card">
+          <div className="py-12 text-center">
+            <div className="text-slate-400">Loading...</div>
+          </div>
+        </div>
+      </div>
+    }>
+      <UploadPageContent />
+    </Suspense>
   );
 }

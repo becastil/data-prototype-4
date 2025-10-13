@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
 import { Download } from 'lucide-react';
@@ -66,7 +66,7 @@ function formatChangeLabel(change: number | null) {
   return { text: `${percent}% vs Prior 12`, tone: 'text-slate-400' };
 }
 
-export default function MonthlyDetailPage() {
+function MonthlyDetailPageContent() {
   const searchParams = useSearchParams();
   const clientId = searchParams.get('clientId') ?? DEFAULT_CLIENT_ID;
   const planYearId = searchParams.get('planYearId') ?? DEFAULT_PLAN_YEAR_ID;
@@ -503,5 +503,19 @@ export default function MonthlyDetailPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function MonthlyDetailPage() {
+  return (
+    <Suspense fallback={
+      <div className="p-8">
+        <div className="report-card animate-pulse p-8 text-slate-400">
+          Loading monthly detail...
+        </div>
+      </div>
+    }>
+      <MonthlyDetailPageContent />
+    </Suspense>
   );
 }
