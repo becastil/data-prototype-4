@@ -7,3 +7,9 @@ export * from './plan-ytd-chart';
 export * from './fuel-gauge';
 export * from './claimant-distribution-chart';
 export * from './utils';
+
+// Budget Module Components
+export * from './BudgetUpload';
+export * from './BudgetConfigEditor';
+export * from './VariancePreviewGrid';
+export * from './EmailDeliveryForm';

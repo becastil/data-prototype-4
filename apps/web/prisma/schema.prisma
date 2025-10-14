@@ -33,6 +33,7 @@ model Client {
   users              User[]
   auditLogs          AuditLog[]
   inputs             Input[]
+  uploadAudits       UploadAudit[]
 
   @@index([active])
 }
@@ -99,6 +100,12 @@ model PlanYear {
   userAdjustments     UserAdjustment[]
   observationNotes    ObservationNote[]
   inputs              Input[]
+  uploadAudits        UploadAudit[]
+  monthlyActuals      MonthlyActuals[]
+  monthlyConfigs      MonthlyConfig[]
+  feeWindows          FeeWindow[]
+  budgetConfig        BudgetConfig?
+  emailDeliveries     EmailDeliveryLog[]
 
   @@unique([clientId, yearStart])
   @@index([clientId, yearStart, yearEnd])
@@ -362,6 +369,8 @@ model User {
   client            Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
   observationNotes  ObservationNote[]
   auditLogs         AuditLog[]
+  uploadAudits      UploadAudit[]
+  emailsSent        EmailDeliveryLog[]
 
   @@index([clientId, role])
 }
@@ -395,4 +404,127 @@ model AuditLog {
   @@index([clientId, timestamp])
   @@index([actorId, timestamp])
   @@index([entity, entityId])
+}
+
+// ============================================
+// Budget & Actuals Module
+// ============================================
+
+model UploadAudit {
+  id          String   @id @default(uuid()) @db.Uuid
+  clientId    String   @map("client_id") @db.Uuid
+  planYearId  String   @map("plan_year_id") @db.Uuid
+  filename    String
+  uploadedAt  DateTime @map("uploaded_at") @default(now())
+  userId      String   @map("user_id") @db.Uuid
+  rowsImported Int     @map("rows_imported") @default(0)
+
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  planYear PlanYear @relation(fields: [planYearId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@index([clientId, planYearId, uploadedAt])
+}
+
+model MonthlyActuals {
+  id                     String   @id @default(uuid()) @db.Uuid
+  planYearId             String   @map("plan_year_id") @db.Uuid
+  serviceMonth           DateTime @map("service_month") // First day of month
+  domesticFacilityIpOp   Decimal  @map("domestic_facility_ip_op") @db.Decimal(12, 2)
+  nonDomesticIpOp        Decimal  @map("non_domestic_ip_op") @db.Decimal(12, 2)
+  nonHospitalMedical     Decimal  @map("non_hospital_medical") @db.Decimal(12, 2)
+  rxClaims               Decimal  @map("rx_claims") @db.Decimal(12, 2)
+  eeCount                Int      @map("ee_count")
+  memberCount            Int      @map("member_count")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planYear PlanYear @relation(fields: [planYearId], references: [id], onDelete: Cascade)
+
+  @@unique([planYearId, serviceMonth])
+  @@index([planYearId, serviceMonth])
+}
+
+model MonthlyConfig {
+  id                String   @id @default(uuid()) @db.Uuid
+  planYearId        String   @map("plan_year_id") @db.Uuid
+  serviceMonth      DateTime @map("service_month")
+  expectedClaims    Decimal  @map("expected_claims") @db.Decimal(12, 2) @default(0)
+  stopLossReimb     Decimal  @map("stop_loss_reimb") @db.Decimal(12, 2) @default(0)
+  rxRebates         Decimal  @map("rx_rebates") @db.Decimal(12, 2) @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planYear PlanYear @relation(fields: [planYearId], references: [id], onDelete: Cascade)
+
+  @@unique([planYearId, serviceMonth])
+  @@index([planYearId, serviceMonth])
+}
+
+model FeeWindow {
+  id             String      @id @default(uuid()) @db.Uuid
+  planYearId     String      @map("plan_year_id") @db.Uuid
+  feeName        String      @map("fee_name")
+  unitType       FeeUnitType @map("unit_type")
+  rate           Decimal     @db.Decimal(12, 4)
+  appliesTo      FeeCategory @map("applies_to")
+  effectiveStart DateTime    @map("effective_start")
+  effectiveEnd   DateTime    @map("effective_end")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planYear PlanYear @relation(fields: [planYearId], references: [id], onDelete: Cascade)
+
+  @@index([planYearId, effectiveStart, effectiveEnd])
+}
+
+enum FeeUnitType {
+  ANNUAL
+  MONTHLY
+  PEPM
+  PEPEM
+  PERCENT_OF_CLAIMS
+  FLAT
+}
+
+enum FeeCategory {
+  FIXED
+  CLAIMS
+  RX
+  ADMIN
+  STOP_LOSS
+  OTHER
+}
+
+model BudgetConfig {
+  id                   String  @id @default(uuid()) @db.Uuid
+  planYearId           String  @map("plan_year_id") @db.Uuid @unique
+  claimsModelType      String  @map("claims_model_type") @default("DIRECT") // DIRECT | DERIVED
+  pctClaimsBase        String  @map("pct_claims_base") @default("ACTUAL") // ACTUAL | EXPECTED
+  roundingMode         String  @map("rounding_mode") @default("HALF_UP") // HALF_UP | BANKER
+  currencyPrecision    Int     @map("currency_precision") @default(2)
+  defaultHorizonMonths Int     @map("default_horizon_months") @default(12)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  planYear PlanYear @relation(fields: [planYearId], references: [id], onDelete: Cascade)
+}
+
+model EmailDeliveryLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  planYearId  String   @map("plan_year_id") @db.Uuid
+  recipients  String[] // Email addresses
+  subject     String
+  sentAt      DateTime @map("sent_at") @default(now())
+  sentBy      String   @map("sent_by") @db.Uuid
+  pdfSize     Int      @map("pdf_size") // bytes
+
+  planYear PlanYear @relation(fields: [planYearId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [sentBy], references: [id])
+
+  @@index([planYearId, sentAt])
 }
