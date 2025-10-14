@@ -5,6 +5,10 @@ import nodemailer from "nodemailer";
 import { EmailDeliverySchema } from "@medical-reporting/lib";
 
 // Simple rate limiting: max 10 emails per user per hour
+// TODO: Replace in-memory rate limiting with database-backed or Redis solution
+// for production. Current implementation resets on server restart/pod recreation,
+// which could allow rate limit bypass in serverless/container environments.
+// Consider: Upstash Redis, Vercel KV, or database table with TTL
 const emailRateLimits = new Map<string, { count: number; resetAt: number }>();
 
 function checkRateLimit(userId: string): { allowed: boolean; remaining: number } {

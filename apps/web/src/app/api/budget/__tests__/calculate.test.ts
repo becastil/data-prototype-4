@@ -17,6 +17,9 @@ describe('Budget Calculation Engine', () => {
   let testPlanYearId: string;
   let testUserId: string;
 
+  // Use dynamic year to prevent tests from becoming outdated
+  const testYear = new Date().getFullYear() + 1;
+
   beforeAll(async () => {
     // Seed test data
     const client = await prisma.client.create({
@@ -31,9 +34,9 @@ describe('Budget Calculation Engine', () => {
     const planYear = await prisma.planYear.create({
       data: {
         clientId: testClientId,
-        year: 2025,
-        startDate: new Date('2025-01-01'),
-        endDate: new Date('2025-12-31'),
+        year: testYear,
+        startDate: new Date(`${testYear}-01-01`),
+        endDate: new Date(`${testYear}-12-31`),
       },
     });
     testPlanYearId = planYear.id;
@@ -52,7 +55,7 @@ describe('Budget Calculation Engine', () => {
       data: [
         {
           planYearId: testPlanYearId,
-          serviceMonth: new Date('2025-01-01'),
+          serviceMonth: new Date(`${testYear}-01-01`),
           domesticFacilityIpOp: 50000,
           nonDomesticIpOp: 10000,
           nonHospitalMedical: 30000,
@@ -62,7 +65,7 @@ describe('Budget Calculation Engine', () => {
         },
         {
           planYearId: testPlanYearId,
-          serviceMonth: new Date('2025-02-01'),
+          serviceMonth: new Date(`${testYear}-02-01`),
           domesticFacilityIpOp: 55000,
           nonDomesticIpOp: 12000,
           nonHospitalMedical: 32000,
@@ -72,7 +75,7 @@ describe('Budget Calculation Engine', () => {
         },
         {
           planYearId: testPlanYearId,
-          serviceMonth: new Date('2025-03-01'),
+          serviceMonth: new Date(`${testYear}-03-01`),
           domesticFacilityIpOp: 48000,
           nonDomesticIpOp: 11000,
           nonHospitalMedical: 31000,
@@ -88,21 +91,21 @@ describe('Budget Calculation Engine', () => {
       data: [
         {
           planYearId: testPlanYearId,
-          serviceMonth: new Date('2025-01-01'),
+          serviceMonth: new Date(`${testYear}-01-01`),
           expectedClaims: 105000, // Expected: $105k
           stopLossReimb: 0,
           rxRebates: 0,
         },
         {
           planYearId: testPlanYearId,
-          serviceMonth: new Date('2025-02-01'),
+          serviceMonth: new Date(`${testYear}-02-01`),
           expectedClaims: 110000,
           stopLossReimb: 0,
           rxRebates: 0,
         },
         {
           planYearId: testPlanYearId,
-          serviceMonth: new Date('2025-03-01'),
+          serviceMonth: new Date(`${testYear}-03-01`),
           expectedClaims: 107000,
           stopLossReimb: 0,
           rxRebates: 0,
@@ -118,8 +121,8 @@ describe('Budget Calculation Engine', () => {
         unitType: 'ANNUAL',
         rate: 120000, // $120k annual = $10k/month
         appliesTo: 'FIXED',
-        effectiveStart: new Date('2025-01-01'),
-        effectiveEnd: new Date('2025-12-31'),
+        effectiveStart: new Date(`${testYear}-01-01`),
+        effectiveEnd: new Date(`${testYear}-12-31`),
       },
     });
 
@@ -223,8 +226,8 @@ describe('Budget Calculation Engine', () => {
         unitType: 'MONTHLY',
         rate: 5000,
         appliesTo: 'FIXED',
-        effectiveStart: new Date('2025-02-15'), // Mid-February
-        effectiveEnd: new Date('2025-12-31'),
+        effectiveStart: new Date(`${testYear}-02-15`), // Mid-February
+        effectiveEnd: new Date(`${testYear}-12-31`),
       },
     });
 

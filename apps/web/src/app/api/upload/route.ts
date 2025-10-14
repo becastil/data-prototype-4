@@ -56,87 +56,90 @@ async function saveMonthlyData(
 
   let rowsImported = 0;
 
-  // Insert data month by month
-  for (const month of Object.keys(byMonth)) {
-    const monthRows = byMonth[month];
-    // Create or update month snapshot
-    const snapshot = await prisma.monthSnapshot.upsert({
-      where: {
-        clientId_planYearId_monthDate: {
-          clientId,
-          planYearId,
-          monthDate: new Date(month + '-01')
-        }
-      },
-      create: {
-        clientId,
-        planYearId,
-        monthDate: new Date(month + '-01')
-      },
-      update: {}
-    });
-
-    // Insert plan stats for this month
-    for (const row of monthRows) {
-      // Skip "All Plans" row - it's calculated
-      if (row.plan.toLowerCase() === 'all plans') continue;
-
-      const plan = plansByCode[row.plan.toLowerCase()];
-      if (!plan) {
-        console.warn(`Plan not found: ${row.plan}`);
-        continue;
-      }
-
-      await prisma.monthlyPlanStat.upsert({
+  // Wrap entire import in a transaction for data integrity
+  await prisma.$transaction(async (tx) => {
+    // Insert data month by month
+    for (const month of Object.keys(byMonth)) {
+      const monthRows = byMonth[month];
+      // Create or update month snapshot
+      const snapshot = await tx.monthSnapshot.upsert({
         where: {
-          snapshotId_planId: {
-            snapshotId: snapshot.id,
-            planId: plan.id
+          clientId_planYearId_monthDate: {
+            clientId,
+            planYearId,
+            monthDate: new Date(month + '-01')
           }
         },
         create: {
-          snapshotId: snapshot.id,
-          planId: plan.id,
-          totalSubscribers: row.subscribers,
-          medicalPaid: row.medicalPaid,
-          rxPaid: row.rxPaid,
-          specStopLossReimb: row.stopLossReimb,
-          estRxRebates: row.rxRebates,
-          adminFees: row.adminFees,
-          stopLossFees: row.stopLossFees,
-          budgetedPremium: row.budgetedPremium
+          clientId,
+          planYearId,
+          monthDate: new Date(month + '-01')
         },
-        update: {
-          totalSubscribers: row.subscribers,
-          medicalPaid: row.medicalPaid,
-          rxPaid: row.rxPaid,
-          specStopLossReimb: row.stopLossReimb,
-          estRxRebates: row.rxRebates,
-          adminFees: row.adminFees,
-          stopLossFees: row.stopLossFees,
-          budgetedPremium: row.budgetedPremium
-        }
+        update: {}
       });
 
-      rowsImported++;
-    }
-  }
+      // Insert plan stats for this month
+      for (const row of monthRows) {
+        // Skip "All Plans" row - it's calculated
+        if (row.plan.toLowerCase() === 'all plans') continue;
 
-  // Create audit log
-  const firstUser = await prisma.user.findFirst();
-  if (firstUser) {
-    await prisma.auditLog.create({
-      data: {
-        clientId,
-        actorId: firstUser.id,
-        entity: 'MONTHLY_DATA',
-        entityId: planYearId,
-        action: 'UPLOAD',
-        before: {},
-        after: toJsonValue({ rowCount: dataRows.length, months: Object.keys(byMonth) })
+        const plan = plansByCode[row.plan.toLowerCase()];
+        if (!plan) {
+          console.warn(`Plan not found: ${row.plan}`);
+          continue;
+        }
+
+        await tx.monthlyPlanStat.upsert({
+          where: {
+            snapshotId_planId: {
+              snapshotId: snapshot.id,
+              planId: plan.id
+            }
+          },
+          create: {
+            snapshotId: snapshot.id,
+            planId: plan.id,
+            totalSubscribers: row.subscribers,
+            medicalPaid: row.medicalPaid,
+            rxPaid: row.rxPaid,
+            specStopLossReimb: row.stopLossReimb,
+            estRxRebates: row.rxRebates,
+            adminFees: row.adminFees,
+            stopLossFees: row.stopLossFees,
+            budgetedPremium: row.budgetedPremium
+          },
+          update: {
+            totalSubscribers: row.subscribers,
+            medicalPaid: row.medicalPaid,
+            rxPaid: row.rxPaid,
+            specStopLossReimb: row.stopLossReimb,
+            estRxRebates: row.rxRebates,
+            adminFees: row.adminFees,
+            stopLossFees: row.stopLossFees,
+            budgetedPremium: row.budgetedPremium
+          }
+        });
+
+        rowsImported++;
       }
-    });
-  }
+    }
+
+    // Create audit log within transaction
+    const firstUser = await tx.user.findFirst();
+    if (firstUser) {
+      await tx.auditLog.create({
+        data: {
+          clientId,
+          actorId: firstUser.id,
+          entity: 'MONTHLY_DATA',
+          entityId: planYearId,
+          action: 'UPLOAD',
+          before: {},
+          after: toJsonValue({ rowCount: dataRows.length, months: Object.keys(byMonth) })
+        }
+      });
+    }
+  });
 
   return {
     monthsImported: Object.keys(byMonth).length,
@@ -571,85 +574,88 @@ export async function PUT(request: NextRequest) {
       return acc;
     }, {});
 
-    // Insert data month by month
-    for (const month of Object.keys(byMonth)) {
-      const monthRows = byMonth[month];
-      // Create or update month snapshot
-      const snapshot = await prisma.monthSnapshot.upsert({
-        where: {
-          clientId_planYearId_monthDate: {
-            clientId,
-            planYearId,
-            monthDate: new Date(month + '-01')
-          }
-        },
-        create: {
-          clientId,
-          planYearId,
-          monthDate: new Date(month + '-01')
-        },
-        update: {}
-      });
-
-      // Insert plan stats for this month
-      for (const row of monthRows) {
-        // Skip "All Plans" row - it's calculated
-        if (row.plan.toLowerCase() === 'all plans') continue;
-
-        const plan = plansByCode[row.plan.toLowerCase()];
-        if (!plan) {
-          console.warn(`Plan not found: ${row.plan}`);
-          continue;
-        }
-
-        await prisma.monthlyPlanStat.upsert({
+    // Wrap entire import in a transaction for data integrity
+    await prisma.$transaction(async (tx) => {
+      // Insert data month by month
+      for (const month of Object.keys(byMonth)) {
+        const monthRows = byMonth[month];
+        // Create or update month snapshot
+        const snapshot = await tx.monthSnapshot.upsert({
           where: {
-            snapshotId_planId: {
-              snapshotId: snapshot.id,
-              planId: plan.id
+            clientId_planYearId_monthDate: {
+              clientId,
+              planYearId,
+              monthDate: new Date(month + '-01')
             }
           },
           create: {
-            snapshotId: snapshot.id,
-            planId: plan.id,
-            totalSubscribers: row.subscribers,
-            medicalPaid: row.medicalPaid,
-            rxPaid: row.rxPaid,
-            specStopLossReimb: row.stopLossReimb,
-            estRxRebates: row.rxRebates,
-            adminFees: row.adminFees,
-            stopLossFees: row.stopLossFees,
-            budgetedPremium: row.budgetedPremium
+            clientId,
+            planYearId,
+            monthDate: new Date(month + '-01')
           },
-          update: {
-            totalSubscribers: row.subscribers,
-            medicalPaid: row.medicalPaid,
-            rxPaid: row.rxPaid,
-            specStopLossReimb: row.stopLossReimb,
-            estRxRebates: row.rxRebates,
-            adminFees: row.adminFees,
-            stopLossFees: row.stopLossFees,
-            budgetedPremium: row.budgetedPremium
+          update: {}
+        });
+
+        // Insert plan stats for this month
+        for (const row of monthRows) {
+          // Skip "All Plans" row - it's calculated
+          if (row.plan.toLowerCase() === 'all plans') continue;
+
+          const plan = plansByCode[row.plan.toLowerCase()];
+          if (!plan) {
+            console.warn(`Plan not found: ${row.plan}`);
+            continue;
+          }
+
+          await tx.monthlyPlanStat.upsert({
+            where: {
+              snapshotId_planId: {
+                snapshotId: snapshot.id,
+                planId: plan.id
+              }
+            },
+            create: {
+              snapshotId: snapshot.id,
+              planId: plan.id,
+              totalSubscribers: row.subscribers,
+              medicalPaid: row.medicalPaid,
+              rxPaid: row.rxPaid,
+              specStopLossReimb: row.stopLossReimb,
+              estRxRebates: row.rxRebates,
+              adminFees: row.adminFees,
+              stopLossFees: row.stopLossFees,
+              budgetedPremium: row.budgetedPremium
+            },
+            update: {
+              totalSubscribers: row.subscribers,
+              medicalPaid: row.medicalPaid,
+              rxPaid: row.rxPaid,
+              specStopLossReimb: row.stopLossReimb,
+              estRxRebates: row.rxRebates,
+              adminFees: row.adminFees,
+              stopLossFees: row.stopLossFees,
+              budgetedPremium: row.budgetedPremium
+            }
+          });
+        }
+      }
+
+      // Create audit log within transaction
+      const firstUser = await tx.user.findFirst();
+      if (firstUser) {
+        await tx.auditLog.create({
+          data: {
+            clientId,
+            actorId: firstUser.id,
+            entity: 'MONTHLY_DATA',
+            entityId: planYearId,
+            action: 'UPLOAD',
+            before: {},
+            after: toJsonValue({ rowCount: incomingRows.length, months: Object.keys(byMonth) })
           }
         });
       }
-    }
-
-    // Create audit log
-    const firstUser = await prisma.user.findFirst();
-    if (firstUser) {
-      await prisma.auditLog.create({
-        data: {
-          clientId,
-          actorId: firstUser.id,
-          entity: 'MONTHLY_DATA',
-          entityId: planYearId,
-          action: 'UPLOAD',
-          before: {},
-          after: toJsonValue({ rowCount: incomingRows.length, months: Object.keys(byMonth) })
-        }
-      });
-    }
+    });
 
     return NextResponse.json({
       success: true,

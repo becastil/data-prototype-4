@@ -111,14 +111,20 @@ export async function GET(req: NextRequest) {
       rxRebates: c.rxRebates,
     }));
 
-    const feeWindowsInput: FeeWindowData[] = feeWindows.map(fw => ({
-      feeName: fw.feeName,
-      unitType: fw.unitType as "ANNUAL" | "MONTHLY" | "PEPM" | "PEPEM" | "PERCENT_OF_CLAIMS" | "FLAT",
-      rate: typeof fw.rate === 'string' ? parseFloat(fw.rate) : fw.rate,
-      appliesTo: fw.appliesTo,
-      effectiveStart: fw.effectiveStart,
-      effectiveEnd: fw.effectiveEnd,
-    }));
+    const feeWindowsInput: FeeWindowData[] = feeWindows.map(fw => {
+      const rate = typeof fw.rate === 'string' ? parseFloat(fw.rate) : fw.rate;
+      if (isNaN(rate)) {
+        throw new Error(`Invalid rate for fee "${fw.feeName}": ${fw.rate}`);
+      }
+      return {
+        feeName: fw.feeName,
+        unitType: fw.unitType as "ANNUAL" | "MONTHLY" | "PEPM" | "PEPEM" | "PERCENT_OF_CLAIMS" | "FLAT",
+        rate,
+        appliesTo: fw.appliesTo,
+        effectiveStart: fw.effectiveStart,
+        effectiveEnd: fw.effectiveEnd,
+      };
+    });
 
     const budgetConfigInput: BudgetConfigCalc = {
       claimsModelType: effectiveBudgetConfig.claimsModelType,
