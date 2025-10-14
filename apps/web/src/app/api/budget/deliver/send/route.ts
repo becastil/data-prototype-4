@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@auth0/nextjs-auth0";
-import { prisma } from "../../../../../lib/prisma";
+import { prisma } from "../../../../../../lib/prisma";
 import nodemailer from "nodemailer";
 import { EmailDeliverySchema } from "@medical-reporting/lib";
 

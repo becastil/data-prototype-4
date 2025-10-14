@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma, Plan } from '@prisma/client';
 import Papa from 'papaparse';
-import { prisma } from '../../../lib/prisma';
+import { prisma } from '../../../../lib/prisma';
 
 interface CsvRow {
   month: string;
