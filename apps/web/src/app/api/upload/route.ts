@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient, Prisma, Plan } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { Prisma, Plan } from '@prisma/client';
+import Papa from 'papaparse';
+import { prisma } from '../../../lib/prisma';
 
 interface CsvRow {
   month: string;
@@ -181,47 +181,61 @@ export async function POST(request: NextRequest) {
 
     // Read file content
     const content = await file.text();
-    const lines = content.split('\n').filter(line => line.trim());
 
-    if (lines.length < 2) {
+    // Parse CSV using papaparse - properly handles quoted values, commas in fields, etc.
+    const parseResult = Papa.parse(content, {
+      header: true,
+      skipEmptyLines: true,
+      trimHeaders: true,
+      dynamicTyping: false, // Keep as strings for validation
+    });
+
+    if (parseResult.errors.length > 0) {
+      const criticalErrors = parseResult.errors.filter(e => e.type === 'Quotes' || e.type === 'FieldMismatch');
+      if (criticalErrors.length > 0) {
+        return NextResponse.json(
+          {
+            error: 'CSV parsing failed',
+            details: criticalErrors.map(e => `Row ${e.row}: ${e.message}`)
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (!parseResult.data || parseResult.data.length === 0) {
       return NextResponse.json(
         { error: 'File is empty or has no data rows' },
         { status: 400 }
       );
     }
 
-    // Parse CSV (simple implementation - production would use a library like papaparse)
-    const rawHeaders = lines[0].split(',').map(h => h.trim());
+    // Map user's column names to internal field names
+    const columnMappings: Record<string, string> = {
+      'month': 'month',
+      'total_subs': 'subscribers',
+      'total_subscribers': 'subscribers',
+      'medical_paid': 'medical_paid',
+      'rx_paid': 'rx_paid',
+      'spec_stop_los_est': 'stop_loss_reimb',
+      'spec_stop_loss_reimb': 'stop_loss_reimb',
+      'rx_rebate': 'rx_rebates',
+      'est_rx_rebates': 'rx_rebates',
+      'admin_fees': 'admin_fees',
+      'stop_loss_fee': 'stop_loss_fees',
+      'stop_loss_fees': 'stop_loss_fees',
+      'budgeted_premi': 'budgeted_premium',
+      'budgeted_premium': 'budgeted_premium',
+      'plan': 'plan'
+    };
 
-    // Create column name mapping to handle different formats
-    const headerMap: Record<string, string> = {};
-    rawHeaders.forEach((header, index) => {
-      const normalized = header.toLowerCase().replace(/\s+/g, '_');
-
-      // Map user's column names to internal field names
-      const mappings: Record<string, string> = {
-        'month': 'month',
-        'total_subs': 'subscribers',
-        'total_subscribers': 'subscribers',
-        'medical_paid': 'medical_paid',
-        'rx_paid': 'rx_paid',
-        'spec_stop_los_est': 'stop_loss_reimb',
-        'spec_stop_loss_reimb': 'stop_loss_reimb',
-        'rx_rebate': 'rx_rebates',
-        'est_rx_rebates': 'rx_rebates',
-        'admin_fees': 'admin_fees',
-        'stop_loss_fee': 'stop_loss_fees',
-        'stop_loss_fees': 'stop_loss_fees',
-        'budgeted_premi': 'budgeted_premium',
-        'budgeted_premium': 'budgeted_premium',
-        'plan': 'plan'
-      };
-
-      const mappedName = mappings[normalized] || normalized;
-      headerMap[index.toString()] = mappedName;
+    // Normalize headers and apply mappings
+    const rawHeaders = parseResult.meta.fields || [];
+    const normalizedHeaders = rawHeaders.map(h => {
+      const normalized = h.toLowerCase().replace(/\s+/g, '_');
+      return columnMappings[normalized] || normalized;
     });
 
-    const headers = Object.values(headerMap);
     const rows: CsvRow[] = [];
     const errors: ValidationError[] = [];
 
@@ -232,7 +246,7 @@ export async function POST(request: NextRequest) {
       ? ['claimant_key', 'plan', 'total_paid', 'medical_paid', 'rx_paid']
       : [];
 
-    const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
+    const missingHeaders = requiredHeaders.filter(h => !normalizedHeaders.includes(h));
     if (missingHeaders.length > 0) {
       return NextResponse.json(
         {
@@ -245,52 +259,54 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse and validate data rows
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim());
-      const rawRow: Record<string, string> = {};
+    const parsedRows = parseResult.data as Array<Record<string, string>>;
+    for (let i = 0; i < parsedRows.length; i++) {
+      const rawRow = parsedRows[i];
+      const mappedRow: Record<string, string> = {};
 
-      // Use the header map to assign values correctly
-      Object.entries(headerMap).forEach(([index, mappedName]) => {
-        const position = Number.parseInt(index, 10);
-        rawRow[mappedName] = values[position];
+      // Apply column name mappings
+      Object.keys(rawRow).forEach((key) => {
+        const normalized = key.toLowerCase().replace(/\s+/g, '_');
+        const mappedKey = columnMappings[normalized] || normalized;
+        mappedRow[mappedKey] = rawRow[key];
       });
 
       // Validate based on file type
       if (fileType === 'monthly') {
         // Validate month format (YYYY-MM)
-        if (!/^\d{4}-\d{2}$/.test(rawRow.month)) {
+        if (!/^\d{4}-\d{2}$/.test(mappedRow.month)) {
           errors.push({
             row: i + 1,
             field: 'month',
-            message: `Invalid month format. Expected YYYY-MM, got ${rawRow.month}`
+            message: `Invalid month format. Expected YYYY-MM, got ${mappedRow.month}`
           });
         }
 
         // Validate numeric fields
         const numericFields = ['subscribers', 'medical_paid', 'rx_paid', 'budgeted_premium'];
         numericFields.forEach(field => {
-          const value = Number.parseFloat(rawRow[field]);
+          const value = Number.parseFloat(mappedRow[field]);
           if (Number.isNaN(value)) {
             errors.push({
               row: i + 1,
               field,
-              message: `Invalid number: ${rawRow[field]}`
+              message: `Invalid number: ${mappedRow[field]}`
             });
           }
         });
 
         // Parse the row - plan comes from form data, not CSV
         const parsedRow: CsvRow = {
-          month: rawRow.month,
-          plan: rawRow.plan || fileType,
-          subscribers: Number.parseInt(rawRow.subscribers, 10) || 0,
-          medicalPaid: Number.parseFloat(rawRow.medical_paid) || 0,
-          rxPaid: Number.parseFloat(rawRow.rx_paid) || 0,
-          stopLossReimb: Number.parseFloat(rawRow.stop_loss_reimb) || 0,
-          rxRebates: Number.parseFloat(rawRow.rx_rebates) || 0,
-          adminFees: Number.parseFloat(rawRow.admin_fees) || 0,
-          stopLossFees: Number.parseFloat(rawRow.stop_loss_fees) || 0,
-          budgetedPremium: Number.parseFloat(rawRow.budgeted_premium) || 0
+          month: mappedRow.month,
+          plan: mappedRow.plan || fileType,
+          subscribers: Number.parseInt(mappedRow.subscribers, 10) || 0,
+          medicalPaid: Number.parseFloat(mappedRow.medical_paid) || 0,
+          rxPaid: Number.parseFloat(mappedRow.rx_paid) || 0,
+          stopLossReimb: Number.parseFloat(mappedRow.stop_loss_reimb) || 0,
+          rxRebates: Number.parseFloat(mappedRow.rx_rebates) || 0,
+          adminFees: Number.parseFloat(mappedRow.admin_fees) || 0,
+          stopLossFees: Number.parseFloat(mappedRow.stop_loss_fees) || 0,
+          budgetedPremium: Number.parseFloat(mappedRow.budgeted_premium) || 0
         };
 
         rows.push(parsedRow);
@@ -503,11 +519,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error processing upload:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: process.env.NODE_ENV === 'production' ? 'Internal server error' : String(error) },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }
 
@@ -646,10 +660,8 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error('Error importing data:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: process.env.NODE_ENV === 'production' ? 'Internal server error' : String(error) },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }

@@ -1,8 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@auth0/nextjs-auth0";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../../../../../lib/prisma";
 import nodemailer from "nodemailer";
 import { EmailDeliverySchema } from "@medical-reporting/lib";
+
+// Simple rate limiting: max 10 emails per user per hour
+const emailRateLimits = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(userId: string): { allowed: boolean; remaining: number } {
+  const now = Date.now();
+  const limit = emailRateLimits.get(userId);
+
+  if (!limit || now > limit.resetAt) {
+    emailRateLimits.set(userId, { count: 1, resetAt: now + 60 * 60 * 1000 }); // 1 hour
+    return { allowed: true, remaining: 9 };
+  }
+
+  if (limit.count >= 10) {
+    return { allowed: false, remaining: 0 };
+  }
+
+  limit.count++;
+  return { allowed: true, remaining: 10 - limit.count };
+}
 
 /**
  * POST /api/budget/deliver/send
@@ -36,8 +56,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const prisma = new PrismaClient();
-
   try {
     // Parse and validate request body
     const body = await req.json();
@@ -57,6 +75,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "User not found or not associated with a client" },
         { status: 404 }
+      );
+    }
+
+    // Check rate limit
+    const rateLimit = checkRateLimit(user.id);
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded. Maximum 10 emails per hour." },
+        { status: 429 }
       );
     }
 
@@ -161,6 +188,7 @@ export async function POST(req: NextRequest) {
       success: true,
       messageId: info.messageId,
       recipients: to.length,
+      remaining: rateLimit.remaining,
     });
   } catch (error: any) {
     console.error("Email send error:", error);
@@ -170,7 +198,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: "Invalid request data",
-          details: error.issues,
+          details: process.env.NODE_ENV === "production" ? [] : error.issues,
         },
         { status: 400 }
       );
@@ -178,14 +206,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(
       {
-        error: "Failed to send email",
-        message: error.message,
-        stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+        error: process.env.NODE_ENV === "production" ? "Internal server error" : "Failed to send email",
+        message: process.env.NODE_ENV === "production" ? undefined : error.message,
       },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }
 

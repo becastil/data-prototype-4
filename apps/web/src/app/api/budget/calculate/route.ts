@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@auth0/nextjs-auth0";
-import { PrismaClient } from "@prisma/client";
-import { calculateMonthlyStats } from "@medical-reporting/lib";
+import { prisma } from "../../../../../lib/prisma";
+import { calculateMonthlyStats, type MonthlyActuals, type MonthlyConfig, type FeeWindowData, type BudgetConfigCalc } from "@medical-reporting/lib";
 
 /**
  * GET /api/budget/calculate?planYearId=<uuid>
@@ -20,8 +20,6 @@ export async function GET(req: NextRequest) {
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const prisma = new PrismaClient();
 
   try {
     const { searchParams } = new URL(req.url);
@@ -95,22 +93,56 @@ export async function GET(req: NextRequest) {
 
     const effectiveBudgetConfig = budgetConfig || defaultBudgetConfig;
 
-    // Run calculation engine
+    // Transform Prisma models to calculation engine interfaces
+    const actualsInput: MonthlyActuals[] = actuals.map(a => ({
+      serviceMonth: a.serviceMonth,
+      domesticFacilityIpOp: a.domesticFacilityIpOp,
+      nonDomesticIpOp: a.nonDomesticIpOp,
+      nonHospitalMedical: a.nonHospitalMedical,
+      rxClaims: a.rxClaims,
+      eeCount: a.eeCount,
+      memberCount: a.memberCount,
+    }));
+
+    const configsInput: MonthlyConfig[] = configs.map(c => ({
+      serviceMonth: c.serviceMonth,
+      expectedClaims: c.expectedClaims,
+      stopLossReimb: c.stopLossReimb,
+      rxRebates: c.rxRebates,
+    }));
+
+    const feeWindowsInput: FeeWindowData[] = feeWindows.map(fw => ({
+      feeName: fw.feeName,
+      unitType: fw.unitType as "ANNUAL" | "MONTHLY" | "PEPM" | "PEPEM" | "PERCENT_OF_CLAIMS" | "FLAT",
+      rate: typeof fw.rate === 'string' ? parseFloat(fw.rate) : fw.rate,
+      appliesTo: fw.appliesTo,
+      effectiveStart: fw.effectiveStart,
+      effectiveEnd: fw.effectiveEnd,
+    }));
+
+    const budgetConfigInput: BudgetConfigCalc = {
+      claimsModelType: effectiveBudgetConfig.claimsModelType,
+      pctClaimsBase: effectiveBudgetConfig.pctClaimsBase,
+      roundingMode: effectiveBudgetConfig.roundingMode,
+      currencyPrecision: effectiveBudgetConfig.currencyPrecision,
+      defaultHorizonMonths: effectiveBudgetConfig.defaultHorizonMonths,
+    };
+
+    // Run calculation engine with properly typed inputs
     const result = calculateMonthlyStats(
-      actuals as any,
-      configs as any,
-      feeWindows as any,
-      effectiveBudgetConfig as any
+      actualsInput,
+      configsInput,
+      feeWindowsInput,
+      budgetConfigInput
     );
 
     return NextResponse.json(result);
   } catch (error: any) {
     console.error("Calculate error:", error);
+    // Don't leak stack traces to client in production
     return NextResponse.json(
-      { error: error.message, stack: error.stack },
+      { error: process.env.NODE_ENV === 'production' ? "Internal server error" : error.message },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@auth0/nextjs-auth0";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../../../../../lib/prisma";
 import {
   BudgetConfigSchema,
   FeeWindowSchema,
@@ -23,8 +23,6 @@ export async function GET(req: NextRequest) {
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const prisma = new PrismaClient();
 
   try {
     const { searchParams } = new URL(req.url);
@@ -78,9 +76,10 @@ export async function GET(req: NextRequest) {
     });
   } catch (error: any) {
     console.error("Config fetch error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  } finally {
-    await prisma.$disconnect();
+    return NextResponse.json(
+      { error: process.env.NODE_ENV === 'production' ? "Internal server error" : error.message },
+      { status: 500 }
+    );
   }
 }
 
@@ -104,8 +103,6 @@ export async function POST(req: NextRequest) {
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const prisma = new PrismaClient();
 
   try {
     const body = await req.json();
@@ -249,11 +246,12 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("Config save error:", error);
     return NextResponse.json(
-      { error: error.message, details: error.issues || [] },
+      {
+        error: process.env.NODE_ENV === 'production' ? "Internal server error" : error.message,
+        details: process.env.NODE_ENV === 'production' ? [] : (error.issues || [])
+      },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }
 
@@ -268,8 +266,6 @@ export async function DELETE(req: NextRequest) {
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const prisma = new PrismaClient();
 
   try {
     const { searchParams } = new URL(req.url);
@@ -302,8 +298,9 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Fee delete error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  } finally {
-    await prisma.$disconnect();
+    return NextResponse.json(
+      { error: process.env.NODE_ENV === 'production' ? "Internal server error" : error.message },
+      { status: 500 }
+    );
   }
 }
