@@ -23,6 +23,7 @@ export function BudgetConfigEditor({
   onSaveComplete,
 }: BudgetConfigEditorProps) {
   const [feeWindows, setFeeWindows] = useState<FeeWindow[]>([]);
+  const [deletedFeeIds, setDeletedFeeIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +41,30 @@ export function BudgetConfigEditor({
         throw new Error("Failed to load configuration");
       }
       const data = await res.json();
-      setFeeWindows(data.feeWindows || []);
+      const normalizedFeeWindows = (data.feeWindows || []).map((fw: any) => {
+        const parsedRate =
+          typeof fw.rate === "string"
+            ? parseFloat(fw.rate)
+            : typeof fw.rate === "number"
+            ? fw.rate
+            : 0;
+
+        return {
+          id: fw.id,
+          feeName: fw.feeName ?? "",
+          unitType: fw.unitType ?? "MONTHLY",
+          rate: Number.isFinite(parsedRate) ? parsedRate : 0,
+          appliesTo: fw.appliesTo ?? "FIXED",
+          effectiveStart: fw.effectiveStart
+            ? new Date(fw.effectiveStart).toISOString().split("T")[0]
+            : "",
+          effectiveEnd: fw.effectiveEnd
+            ? new Date(fw.effectiveEnd).toISOString().split("T")[0]
+            : "",
+        };
+      });
+      setFeeWindows(normalizedFeeWindows);
+      setDeletedFeeIds([]);
     } catch (err: any) {
       console.error("Load config error:", err);
       setError(err.message);
@@ -74,7 +98,15 @@ export function BudgetConfigEditor({
   };
 
   const removeFeeWindow = (index: number) => {
-    setFeeWindows(feeWindows.filter((_, i) => i !== index));
+    setFeeWindows((prev) => {
+      const toRemove = prev[index];
+      if (toRemove?.id) {
+        setDeletedFeeIds((ids) =>
+          ids.includes(toRemove.id!) ? ids : [...ids, toRemove.id!]
+        );
+      }
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const saveConfig = async () => {
@@ -84,13 +116,15 @@ export function BudgetConfigEditor({
       const res = await fetch("/api/budget/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planYearId, feeWindows }),
+        body: JSON.stringify({ planYearId, feeWindows, deletedFeeIds }),
       });
 
       if (!res.ok) {
         const errorData = await res.json();
         throw new Error(errorData.error || "Failed to save configuration");
       }
+
+      await loadConfig();
 
       if (onSaveComplete) {
         onSaveComplete();

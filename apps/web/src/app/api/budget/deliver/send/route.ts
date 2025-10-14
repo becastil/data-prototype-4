@@ -157,8 +157,6 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    await prisma.$disconnect();
-
     return NextResponse.json({
       success: true,
       messageId: info.messageId,
@@ -166,7 +164,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     console.error("Email send error:", error);
-    await prisma.$disconnect();
 
     // Handle validation errors separately
     if (error.name === "ZodError") {
@@ -187,6 +184,8 @@ export async function POST(req: NextRequest) {
       },
       { status: 500 }
     );
+  } finally {
+    await prisma.$disconnect();
   }
 }
 

@@ -126,8 +126,6 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    await prisma.$disconnect();
-
     return NextResponse.json({
       success: true,
       rowsImported: parseResult.data.length,
@@ -136,7 +134,8 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     console.error("Upload error:", error);
-    await prisma.$disconnect();
     return NextResponse.json({ error: error.message }, { status: 500 });
+  } finally {
+    await prisma.$disconnect();
   }
 }

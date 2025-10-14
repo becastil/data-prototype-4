@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@auth0/nextjs-auth0";
+import { PrismaClient } from "@prisma/client";
 import puppeteer from "puppeteer";
 
 /**
@@ -12,9 +14,47 @@ import puppeteer from "puppeteer";
  * Returns: PDF buffer with appropriate headers
  */
 export async function POST(req: NextRequest) {
+  const session = await getSession();
+
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const planYearId = req.headers.get("x-plan-year-id");
+
+  if (!planYearId) {
+    return NextResponse.json(
+      { error: "Missing plan year context" },
+      { status: 400 }
+    );
+  }
+
   let browser;
+  const prisma = new PrismaClient();
 
   try {
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email! },
+    });
+
+    if (!user || !user.clientId) {
+      return NextResponse.json(
+        { error: "User not found or not associated with a client" },
+        { status: 404 }
+      );
+    }
+
+    const planYear = await prisma.planYear.findUnique({
+      where: { id: planYearId },
+    });
+
+    if (!planYear || planYear.clientId !== user.clientId) {
+      return NextResponse.json(
+        { error: "Plan year not found or access denied" },
+        { status: 403 }
+      );
+    }
+
     const html = await req.text();
 
     if (!html || html.length === 0) {
@@ -89,5 +129,7 @@ export async function POST(req: NextRequest) {
       },
       { status: 500 }
     );
+  } finally {
+    await prisma.$disconnect();
   }
 }

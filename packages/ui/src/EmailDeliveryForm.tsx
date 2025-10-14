@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Mail, Loader2, Send, Plus, X } from "lucide-react";
+import { arrayBufferToBase64 } from "./utils/base64";
 
 interface EmailDeliveryFormProps {
   planYearId: string;
@@ -84,6 +85,7 @@ export function EmailDeliveryForm({
           ...calcData,
           clientName,
           planYearLabel,
+          planYearId,
         }),
       });
 
@@ -99,7 +101,10 @@ export function EmailDeliveryForm({
 
       const pdfRes = await fetch("/api/budget/export/pdf", {
         method: "POST",
-        headers: { "Content-Type": "text/html" },
+        headers: {
+          "Content-Type": "text/html",
+          "X-Plan-Year-Id": planYearId,
+        },
         body: html,
       });
 
@@ -109,7 +114,7 @@ export function EmailDeliveryForm({
 
       const pdfBlob = await pdfRes.blob();
       const pdfBuffer = await pdfBlob.arrayBuffer();
-      const pdfBase64 = Buffer.from(pdfBuffer).toString("base64");
+      const pdfBase64 = arrayBufferToBase64(pdfBuffer);
 
       // Step 4: Generate email body
       const topDelta = `${

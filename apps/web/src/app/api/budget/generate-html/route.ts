@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@auth0/nextjs-auth0";
+import { PrismaClient } from "@prisma/client";
 import { format } from "date-fns";
 
 /**
@@ -19,14 +21,42 @@ import { format } from "date-fns";
  * Returns: { html: string }
  */
 export async function POST(req: NextRequest) {
+  const session = await getSession();
+
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const prisma = new PrismaClient();
+
   try {
     const data = await req.json();
-    const { months, ytd, lastThreeMonths, clientName, planYearLabel } = data;
+    const { months, ytd, lastThreeMonths, clientName, planYearLabel, planYearId } =
+      data;
 
-    if (!months || !ytd || !clientName || !planYearLabel) {
+    if (!months || !ytd || !clientName || !planYearLabel || !planYearId) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email! },
+    });
+
+    if (!user || !user.clientId) {
       return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
+        { error: "User not found or not associated with a client" },
+        { status: 404 }
+      );
+    }
+
+    const planYear = await prisma.planYear.findUnique({
+      where: { id: planYearId },
+    });
+
+    if (!planYear || planYear.clientId !== user.clientId) {
+      return NextResponse.json(
+        { error: "Plan year not found or access denied" },
+        { status: 403 }
       );
     }
 
@@ -375,5 +405,7 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("HTML generation error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
+  } finally {
+    await prisma.$disconnect();
   }
 }

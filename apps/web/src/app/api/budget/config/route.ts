@@ -31,10 +31,7 @@ export async function GET(req: NextRequest) {
     const planYearId = searchParams.get("planYearId");
 
     if (!planYearId) {
-      return NextResponse.json(
-        { error: "Missing planYearId" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing planYearId" }, { status: 400 });
     }
 
     // Get user and verify access
@@ -74,8 +71,6 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    await prisma.$disconnect();
-
     return NextResponse.json({
       budgetConfig,
       monthlyConfigs,
@@ -83,8 +78,9 @@ export async function GET(req: NextRequest) {
     });
   } catch (error: any) {
     console.error("Config fetch error:", error);
-    await prisma.$disconnect();
     return NextResponse.json({ error: error.message }, { status: 500 });
+  } finally {
+    await prisma.$disconnect();
   }
 }
 
@@ -113,13 +109,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { planYearId, budgetConfig, monthlyConfigs, feeWindows } = body;
+    const { planYearId, budgetConfig, monthlyConfigs, feeWindows, deletedFeeIds } =
+      body;
 
     if (!planYearId) {
-      return NextResponse.json(
-        { error: "Missing planYearId" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing planYearId" }, { status: 400 });
     }
 
     // Get user and verify access
@@ -230,18 +224,36 @@ export async function POST(req: NextRequest) {
           }
         }
       }
-    });
 
-    await prisma.$disconnect();
+      const uniqueDeletedIds = Array.isArray(deletedFeeIds)
+        ? Array.from(
+            new Set(
+              deletedFeeIds.filter(
+                (id: unknown): id is string => typeof id === "string" && id.length > 0
+              )
+            )
+          )
+        : [];
+
+      if (uniqueDeletedIds.length > 0) {
+        await tx.feeWindow.deleteMany({
+          where: {
+            id: { in: uniqueDeletedIds },
+            planYearId,
+          },
+        });
+      }
+    });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Config save error:", error);
-    await prisma.$disconnect();
     return NextResponse.json(
       { error: error.message, details: error.issues || [] },
       { status: 500 }
     );
+  } finally {
+    await prisma.$disconnect();
   }
 }
 
@@ -286,12 +298,12 @@ export async function DELETE(req: NextRequest) {
     }
 
     await prisma.feeWindow.delete({ where: { id: feeId } });
-    await prisma.$disconnect();
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Fee delete error:", error);
-    await prisma.$disconnect();
     return NextResponse.json({ error: error.message }, { status: 500 });
+  } finally {
+    await prisma.$disconnect();
   }
 }

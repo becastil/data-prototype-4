@@ -103,15 +103,14 @@ export async function GET(req: NextRequest) {
       effectiveBudgetConfig as any
     );
 
-    await prisma.$disconnect();
-
     return NextResponse.json(result);
   } catch (error: any) {
     console.error("Calculate error:", error);
-    await prisma.$disconnect();
     return NextResponse.json(
       { error: error.message, stack: error.stack },
       { status: 500 }
     );
+  } finally {
+    await prisma.$disconnect();
   }
 }
