@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
     await browser.close();
 
     // Return PDF with proper headers
-    return new Response(pdf, {
+    return new Response(new Uint8Array(pdf), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
