@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@auth0/nextjs-auth0";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../../../../lib/prisma";
 import { calculateMonthlyStats, type MonthlyActuals, type MonthlyConfig, type FeeWindowData, type BudgetConfigCalc } from "@medical-reporting/lib";
 
@@ -93,27 +94,44 @@ export async function GET(req: NextRequest) {
 
     const effectiveBudgetConfig = budgetConfig || defaultBudgetConfig;
 
+    const decimalToNumber = (value: Prisma.Decimal | number | string) => {
+      if (typeof value === "number") {
+        return value;
+      }
+
+      if (typeof value === "string") {
+        const parsed = Number(value);
+        if (Number.isNaN(parsed)) {
+          throw new Error(`Invalid numeric string encountered: ${value}`);
+        }
+        return parsed;
+      }
+
+      // Prisma.Decimal exposes toNumber for safe conversion
+      return value.toNumber();
+    };
+
     // Transform Prisma models to calculation engine interfaces
     const actualsInput: MonthlyActuals[] = actuals.map(a => ({
       serviceMonth: a.serviceMonth,
-      domesticFacilityIpOp: a.domesticFacilityIpOp,
-      nonDomesticIpOp: a.nonDomesticIpOp,
-      nonHospitalMedical: a.nonHospitalMedical,
-      rxClaims: a.rxClaims,
+      domesticFacilityIpOp: decimalToNumber(a.domesticFacilityIpOp),
+      nonDomesticIpOp: decimalToNumber(a.nonDomesticIpOp),
+      nonHospitalMedical: decimalToNumber(a.nonHospitalMedical),
+      rxClaims: decimalToNumber(a.rxClaims),
       eeCount: a.eeCount,
       memberCount: a.memberCount,
     }));
 
     const configsInput: MonthlyConfig[] = configs.map(c => ({
       serviceMonth: c.serviceMonth,
-      expectedClaims: c.expectedClaims,
-      stopLossReimb: c.stopLossReimb,
-      rxRebates: c.rxRebates,
+      expectedClaims: decimalToNumber(c.expectedClaims),
+      stopLossReimb: decimalToNumber(c.stopLossReimb),
+      rxRebates: decimalToNumber(c.rxRebates),
     }));
 
     const feeWindowsInput: FeeWindowData[] = feeWindows.map(fw => {
-      const rate = typeof fw.rate === 'string' ? parseFloat(fw.rate) : fw.rate;
-      if (isNaN(rate)) {
+      const rate = decimalToNumber(fw.rate);
+      if (Number.isNaN(rate)) {
         throw new Error(`Invalid rate for fee "${fw.feeName}": ${fw.rate}`);
       }
       return {
