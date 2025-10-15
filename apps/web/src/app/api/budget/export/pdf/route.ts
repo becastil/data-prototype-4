@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@auth0/nextjs-auth0";
 import { PrismaClient } from "@prisma/client";
-import puppeteer from "puppeteer";
+import puppeteer, { Browser } from "puppeteer";
 
 /**
  * POST /api/budget/export/pdf
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let browser: puppeteer.Browser | null = null;
+  let browser: Browser | null = null;
   const prisma = new PrismaClient();
 
   try {
