@@ -143,11 +143,13 @@ export async function GET(req: NextRequest) {
     );
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Calculate error:", error);
-    // Don't leak stack traces to client in production
+    const isProd = process.env.NODE_ENV === "production";
+    const message =
+      error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json(
-      { error: process.env.NODE_ENV === 'production' ? "Internal server error" : error.message },
+      { error: isProd ? "Internal server error" : message },
       { status: 500 }
     );
   }

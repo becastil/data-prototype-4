@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let browser;
+  let browser: puppeteer.Browser | null = null;
   const prisma = new PrismaClient();
 
   try {
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
         "Cache-Control": "no-cache, no-store, must-revalidate",
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("PDF generation error:", error);
 
     if (browser) {
@@ -121,11 +121,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const isProd = process.env.NODE_ENV === "production";
+    const message =
+      error instanceof Error ? error.message : "Failed to generate PDF";
+    const stack =
+      !isProd && error instanceof Error ? error.stack : undefined;
+
     return NextResponse.json(
       {
         error: "PDF generation failed",
-        message: error.message,
-        stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+        message,
+        stack,
       },
       { status: 500 }
     );

@@ -132,9 +132,11 @@ export async function POST(req: NextRequest) {
       preview: parseResult.data.slice(0, 5),
       totalRows: parseResult.totalRows,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Upload error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const message =
+      error instanceof Error ? error.message : "Failed to upload budget data";
+    return NextResponse.json({ error: message }, { status: 500 });
   } finally {
     await prisma.$disconnect();
   }

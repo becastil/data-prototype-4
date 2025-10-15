@@ -10,7 +10,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { prisma } from '@/lib/prisma';
-import { calculateMonthlyStats } from '@medical-reporting/lib';
+import { calculateMonthlyStats, type BudgetConfigCalc, type FeeWindowData } from '@medical-reporting/lib';
 
 describe('Budget Calculation Engine', () => {
   let testClientId: string;
@@ -179,7 +179,7 @@ describe('Budget Calculation Engine', () => {
 
     const feeWindowsInput = feeWindows.map(fw => ({
       feeName: fw.feeName,
-      unitType: fw.unitType as any,
+      unitType: fw.unitType as FeeWindowData["unitType"],
       rate: typeof fw.rate === 'string' ? parseFloat(fw.rate) : fw.rate,
       appliesTo: fw.appliesTo,
       effectiveStart: fw.effectiveStart,
@@ -258,14 +258,26 @@ describe('Budget Calculation Engine', () => {
 
     const feeWindowsInput = feeWindows.map(fw => ({
       feeName: fw.feeName,
-      unitType: fw.unitType as any,
+      unitType: fw.unitType as FeeWindowData["unitType"],
       rate: typeof fw.rate === 'string' ? parseFloat(fw.rate) : fw.rate,
       appliesTo: fw.appliesTo,
       effectiveStart: fw.effectiveStart,
       effectiveEnd: fw.effectiveEnd,
     }));
 
-    const result = calculateMonthlyStats(actualsInput, configsInput, feeWindowsInput, budgetConfig as any);
+    if (!budgetConfig) {
+      throw new Error('Budget config not found for test plan year');
+    }
+
+    const budgetConfigInput: BudgetConfigCalc = {
+      claimsModelType: budgetConfig.claimsModelType,
+      pctClaimsBase: budgetConfig.pctClaimsBase,
+      roundingMode: budgetConfig.roundingMode,
+      currencyPrecision: budgetConfig.currencyPrecision,
+      defaultHorizonMonths: budgetConfig.defaultHorizonMonths,
+    };
+
+    const result = calculateMonthlyStats(actualsInput, configsInput, feeWindowsInput, budgetConfigInput);
 
     // February should have prorated stop loss fee
     const feb = result.months[1];
@@ -309,14 +321,26 @@ describe('Budget Calculation Engine', () => {
 
     const feeWindowsInput = feeWindows.map(fw => ({
       feeName: fw.feeName,
-      unitType: fw.unitType as any,
+      unitType: fw.unitType as FeeWindowData["unitType"],
       rate: typeof fw.rate === 'string' ? parseFloat(fw.rate) : fw.rate,
       appliesTo: fw.appliesTo,
       effectiveStart: fw.effectiveStart,
       effectiveEnd: fw.effectiveEnd,
     }));
 
-    const result = calculateMonthlyStats(actualsInput, configsInput, feeWindowsInput, budgetConfig as any);
+    if (!budgetConfig) {
+      throw new Error('Budget config not found for test plan year');
+    }
+
+    const budgetConfigInput: BudgetConfigCalc = {
+      claimsModelType: budgetConfig.claimsModelType,
+      pctClaimsBase: budgetConfig.pctClaimsBase,
+      roundingMode: budgetConfig.roundingMode,
+      currencyPrecision: budgetConfig.currencyPrecision,
+      defaultHorizonMonths: budgetConfig.defaultHorizonMonths,
+    };
+
+    const result = calculateMonthlyStats(actualsInput, configsInput, feeWindowsInput, budgetConfigInput);
 
     // January: $120k actual / 250 members = $480 PEPM
     const jan = result.months[0];

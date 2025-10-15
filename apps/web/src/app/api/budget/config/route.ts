@@ -6,6 +6,7 @@ import {
   FeeWindowSchema,
   MonthlyConfigSchema,
 } from "@medical-reporting/lib";
+import { ZodError } from "zod";
 
 /**
  * GET /api/budget/config?planYearId=<uuid>
@@ -74,10 +75,13 @@ export async function GET(req: NextRequest) {
       monthlyConfigs,
       feeWindows,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Config fetch error:", error);
+    const isProd = process.env.NODE_ENV === "production";
+    const message =
+      error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json(
-      { error: process.env.NODE_ENV === 'production' ? "Internal server error" : error.message },
+      { error: isProd ? "Internal server error" : message },
       { status: 500 }
     );
   }
@@ -243,12 +247,27 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Config save error:", error);
+    const isProd = process.env.NODE_ENV === "production";
+
+    if (error instanceof ZodError) {
+      return NextResponse.json(
+        {
+          error: "Invalid configuration data",
+          details: isProd ? [] : error.issues,
+        },
+        { status: 400 }
+      );
+    }
+
+    const message =
+      error instanceof Error ? error.message : "Failed to save configuration";
+
     return NextResponse.json(
       {
-        error: process.env.NODE_ENV === 'production' ? "Internal server error" : error.message,
-        details: process.env.NODE_ENV === 'production' ? [] : (error.issues || [])
+        error: isProd ? "Internal server error" : "Failed to save configuration",
+        details: isProd ? [] : [message],
       },
       { status: 500 }
     );
@@ -296,10 +315,13 @@ export async function DELETE(req: NextRequest) {
     await prisma.feeWindow.delete({ where: { id: feeId } });
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Fee delete error:", error);
+    const isProd = process.env.NODE_ENV === "production";
+    const message =
+      error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json(
-      { error: process.env.NODE_ENV === 'production' ? "Internal server error" : error.message },
+      { error: isProd ? "Internal server error" : message },
       { status: 500 }
     );
   }

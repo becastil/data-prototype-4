@@ -7,8 +7,9 @@
  * - SMTP configuration validation
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { prisma } from '@/lib/prisma';
+import { EmailDeliverySchema } from '@medical-reporting/lib';
 
 describe('Email Delivery Endpoint', () => {
   let testClientId: string;
@@ -103,8 +104,6 @@ describe('Email Delivery Endpoint', () => {
   });
 
   it('should validate email format in request body', () => {
-    const { EmailDeliverySchema } = require('@medical-reporting/lib');
-
     // Valid emails should pass
     const validInput = {
       to: ['user@example.com', 'admin@company.org'],
@@ -129,8 +128,6 @@ describe('Email Delivery Endpoint', () => {
   });
 
   it('should require at least one recipient', () => {
-    const { EmailDeliverySchema } = require('@medical-reporting/lib');
-
     const emptyRecipients = {
       to: [],
       subject: 'Test',
@@ -147,8 +144,6 @@ describe('Email Delivery Endpoint', () => {
   });
 
   it('should validate planYearId is a valid UUID', () => {
-    const { EmailDeliverySchema } = require('@medical-reporting/lib');
-
     const invalidUuid = {
       to: ['user@example.com'],
       subject: 'Test',

@@ -3,6 +3,7 @@ import { getSession } from "@auth0/nextjs-auth0";
 import { prisma } from "../../../../../../lib/prisma";
 import nodemailer from "nodemailer";
 import { EmailDeliverySchema } from "@medical-reporting/lib";
+import { ZodError } from "zod";
 
 // Simple rate limiting: max 10 emails per user per hour
 // TODO: Replace in-memory rate limiting with database-backed or Redis solution
@@ -147,14 +148,16 @@ export async function POST(req: NextRequest) {
     // Verify SMTP connection
     try {
       await transporter.verify();
-    } catch (verifyError: any) {
+    } catch (verifyError: unknown) {
       console.error("SMTP verification failed:", verifyError);
+      const verificationMessage =
+        verifyError instanceof Error ? verifyError.message : "Verification failed";
       return NextResponse.json(
         {
           error: "Email service connection failed",
           details:
             process.env.NODE_ENV === "development"
-              ? verifyError.message
+              ? verificationMessage
               : undefined,
         },
         { status: 503 }
@@ -194,24 +197,28 @@ export async function POST(req: NextRequest) {
       recipients: to.length,
       remaining: rateLimit.remaining,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Email send error:", error);
+    const isProd = process.env.NODE_ENV === "production";
 
     // Handle validation errors separately
-    if (error.name === "ZodError") {
+    if (error instanceof ZodError) {
       return NextResponse.json(
         {
           error: "Invalid request data",
-          details: process.env.NODE_ENV === "production" ? [] : error.issues,
+          details: isProd ? [] : error.issues,
         },
         { status: 400 }
       );
     }
 
+    const message =
+      error instanceof Error ? error.message : "Failed to send email";
+
     return NextResponse.json(
       {
-        error: process.env.NODE_ENV === "production" ? "Internal server error" : "Failed to send email",
-        message: process.env.NODE_ENV === "production" ? undefined : error.message,
+        error: isProd ? "Internal server error" : "Failed to send email",
+        message: isProd ? undefined : message,
       },
       { status: 500 }
     );

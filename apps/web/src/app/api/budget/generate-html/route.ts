@@ -2,6 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@auth0/nextjs-auth0";
 import { PrismaClient } from "@prisma/client";
 import { format } from "date-fns";
+import { type MonthlyCalculation } from "@medical-reporting/lib";
+
+type CalculationSummary = Omit<MonthlyCalculation, "month">;
+
+interface GenerateHtmlPayload {
+  months: MonthlyCalculation[];
+  ytd: CalculationSummary;
+  lastThreeMonths: CalculationSummary;
+  clientName: string;
+  planYearLabel: string;
+  planYearId: string;
+}
 
 /**
  * POST /api/budget/generate-html
@@ -30,7 +42,7 @@ export async function POST(req: NextRequest) {
   const prisma = new PrismaClient();
 
   try {
-    const data = await req.json();
+    const data: GenerateHtmlPayload = await req.json();
     const { months, ytd, lastThreeMonths, clientName, planYearLabel, planYearId } =
       data;
 
@@ -275,7 +287,7 @@ export async function POST(req: NextRequest) {
     <tbody>
       ${months
         .map(
-          (m: any) => `
+          (m) => `
       <tr>
         <td>${format(new Date(m.month), "MMM yyyy")}</td>
         <td>${m.eeCount.toLocaleString()}</td>
@@ -402,9 +414,11 @@ export async function POST(req: NextRequest) {
     `;
 
     return NextResponse.json({ html });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("HTML generation error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const message =
+      error instanceof Error ? error.message : "Failed to generate budget HTML";
+    return NextResponse.json({ error: message }, { status: 500 });
   } finally {
     await prisma.$disconnect();
   }
