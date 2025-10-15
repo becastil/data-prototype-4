@@ -51,17 +51,19 @@ function normalizeRow(row: any): any {
  */
 export async function parseCSV(
   buffer: Buffer,
-  encoding: string = "utf-8"
+  encoding?: BufferEncoding
 ): Promise<ParseResult> {
+  const resolvedEncoding: BufferEncoding = encoding ?? "utf8";
+
   return new Promise((resolve) => {
-    Papa.parse(buffer.toString(encoding), {
+    Papa.parse(buffer.toString(resolvedEncoding), {
       header: true,
       skipEmptyLines: true,
       transformHeader: (header) => header.trim().toLowerCase().replace(/\s+/g, "_"),
       complete: (results) => {
         resolve(validateRows(results.data as any[]));
       },
-      error: (error) => {
+      error: (error: Error) => {
         resolve({
           data: [],
           errors: [{ row: 0, column: "", value: "", error: error.message }],

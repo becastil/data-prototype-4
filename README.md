@@ -31,11 +31,14 @@ git clone <repo-url>
 cd data-prototype-4
 npm install
 
+# Configure environment variables (edit the copied files with real secrets)
+cp .env.example .env
+cp apps/web/.env.example apps/web/.env
+
 # Start infrastructure
 docker compose up -d postgres
 
 # Set up database
-cp apps/web/.env.example apps/web/.env
 cd apps/web
 npx prisma generate
 npx prisma db push
@@ -99,7 +102,11 @@ npm run docker:down   # Stop all services
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and configure:
+1. Copy the root `.env.example` to `.env` for shared values like `DATABASE_URL`.
+2. Copy `apps/web/.env.example` to `apps/web/.env` for Next.js- and Prisma-specific settings.
+3. Never commit `.env` or `.env.local` files—those are gitignored by default.
+
+Configure at minimum:
 
 - `DATABASE_URL` - PostgreSQL connection string
 - `AUTH0_*` - Auth0 credentials
