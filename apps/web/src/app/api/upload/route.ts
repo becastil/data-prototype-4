@@ -186,10 +186,10 @@ export async function POST(request: NextRequest) {
     const content = await file.text();
 
     // Parse CSV using papaparse - properly handles quoted values, commas in fields, etc.
-    const parseResult = Papa.parse(content, {
+    const parseResult = Papa.parse<Record<string, string>>(content, {
       header: true,
       skipEmptyLines: true,
-      trimHeaders: true,
+      transformHeader: (header) => header.trim(),
       dynamicTyping: false, // Keep as strings for validation
     });
 
