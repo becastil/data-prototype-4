@@ -228,7 +228,7 @@ export async function POST(req: NextRequest) {
 /**
  * Helper function to generate email body HTML
  */
-export function generateEmailBody(
+function generateEmailBody(
   clientName: string,
   planYearLabel: string,
   ytdVariancePct: number,
