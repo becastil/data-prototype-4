@@ -80,8 +80,10 @@ async function saveMonthlyData(
 
       // Insert plan stats for this month
       for (const row of monthRows) {
-        // Skip "All Plans" row - it's calculated
-        if (row.plan.toLowerCase() === 'all plans') continue;
+        // Skip "All Plans" row only if we have individual plan data for the same month
+        // For "All Plans Monthly" files, we want to keep the "All Plans" rows
+        const hasIndividualPlans = monthRows.some(r => r.plan.toLowerCase() !== 'all plans');
+        if (row.plan.toLowerCase() === 'all plans' && hasIndividualPlans) continue;
 
         const plan = plansByCode[row.plan.toLowerCase()];
         if (!plan) {
@@ -301,7 +303,7 @@ export async function POST(request: NextRequest) {
         // Parse the row - plan comes from form data, not CSV
         const parsedRow: CsvRow = {
           month: mappedRow.month,
-          plan: mappedRow.plan || fileType,
+          plan: mappedRow.plan || (fileType === 'all plans' ? 'All Plans' : fileType),
           subscribers: Number.parseInt(mappedRow.subscribers, 10) || 0,
           medicalPaid: Number.parseFloat(mappedRow.medical_paid) || 0,
           rxPaid: Number.parseFloat(mappedRow.rx_paid) || 0,
@@ -598,8 +600,10 @@ export async function PUT(request: NextRequest) {
 
         // Insert plan stats for this month
         for (const row of monthRows) {
-          // Skip "All Plans" row - it's calculated
-          if (row.plan.toLowerCase() === 'all plans') continue;
+          // Skip "All Plans" row only if we have individual plan data for the same month
+          // For "All Plans Monthly" files, we want to keep the "All Plans" rows
+          const hasIndividualPlans = monthRows.some(r => r.plan.toLowerCase() !== 'all plans');
+          if (row.plan.toLowerCase() === 'all plans' && hasIndividualPlans) continue;
 
           const plan = plansByCode[row.plan.toLowerCase()];
           if (!plan) {

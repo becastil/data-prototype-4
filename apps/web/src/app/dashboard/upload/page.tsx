@@ -90,6 +90,10 @@ function UploadPageContent() {
   const [previewError, setPreviewError] = useState<UploadPreviewError | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [rawCsvPreview, setRawCsvPreview] = useState<{
+    headers: string[];
+    rows: string[][];
+  } | null>(null);
 
   const handleDownloadTemplate = () => {
     window.open(`/api/template?type=${selectedFileType}`, '_blank');
@@ -101,6 +105,19 @@ function UploadPageContent() {
     setPreviewError(null);
     setImportMessage(null);
     setImportError(null);
+    setRawCsvPreview(null);
+    
+    // Parse CSV to show immediate preview
+    const text = await file.text();
+    const lines = text.split('\n').filter(line => line.trim());
+    if (lines.length > 0) {
+      const headers = lines[0].split(',').map(h => h.trim());
+      const dataRows = lines.slice(1, 6).map(line => 
+        line.split(',').map(cell => cell.trim())
+      );
+      setRawCsvPreview({ headers, rows: dataRows });
+    }
+    
     setCurrentStep('validate');
     setIsProcessing(true);
 
@@ -219,6 +236,7 @@ function UploadPageContent() {
     setPreviewError(null);
     setImportMessage(null);
     setImportError(null);
+    setRawCsvPreview(null);
     setIsProcessing(false);
   };
 
@@ -395,6 +413,36 @@ function UploadPageContent() {
               </div>
             </div>
           </div>
+
+          {/* CSV Preview */}
+          {rawCsvPreview && (
+            <div className="report-card">
+              <h3 className="text-lg font-semibold mb-4">CSV Preview</h3>
+              <p className="text-sm text-slate-400 mb-3">
+                First {rawCsvPreview.rows.length} rows from your file
+              </p>
+              <div className="overflow-x-auto">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      {rawCsvPreview.headers.map((header, idx) => (
+                        <th key={idx}>{header}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rawCsvPreview.rows.map((row, rowIdx) => (
+                      <tr key={rowIdx}>
+                        {row.map((cell, cellIdx) => (
+                          <td key={cellIdx}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
