@@ -2,6 +2,7 @@
 
 import { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Papa from 'papaparse';
 import {
   Upload,
   FileSpreadsheet,
@@ -106,18 +107,25 @@ function UploadPageContent() {
     setImportMessage(null);
     setImportError(null);
     setRawCsvPreview(null);
-    
-    // Parse CSV to show immediate preview
-    const text = await file.text();
-    const lines = text.split('\n').filter(line => line.trim());
-    if (lines.length > 0) {
-      const headers = lines[0].split(',').map(h => h.trim());
-      const dataRows = lines.slice(1, 6).map(line => 
-        line.split(',').map(cell => cell.trim())
-      );
-      setRawCsvPreview({ headers, rows: dataRows });
+
+    // Parse CSV to show immediate preview using PapaParse for proper handling
+    try {
+      const text = await file.text();
+      const parseResult = Papa.parse<string[]>(text, {
+        preview: 6, // Only parse first 6 rows for preview
+        skipEmptyLines: true,
+      });
+
+      if (parseResult.data && parseResult.data.length > 0) {
+        const headers = parseResult.data[0];
+        const dataRows = parseResult.data.slice(1);
+        setRawCsvPreview({ headers, rows: dataRows });
+      }
+    } catch (error) {
+      console.error('CSV preview parsing failed:', error);
+      // Don't block upload if preview fails - just skip the preview
     }
-    
+
     setCurrentStep('validate');
     setIsProcessing(true);
 

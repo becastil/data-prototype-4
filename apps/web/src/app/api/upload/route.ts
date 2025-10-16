@@ -29,6 +29,55 @@ interface ValidationError {
 const toJsonValue = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
 
+/**
+ * Helper to normalize plan names from file type.
+ * Converts lowercase file type identifiers to proper title case plan names.
+ *
+ * @param fileType - The file type string (e.g., "all plans", "hdhp", "ppo base")
+ * @param mappedRowPlan - Plan value from the CSV row itself (if present)
+ * @returns Properly cased plan name
+ */
+function normalizePlanName(fileType: string, mappedRowPlan?: string): string {
+  // If plan is in the CSV, use it directly
+  if (mappedRowPlan && mappedRowPlan.trim()) {
+    return mappedRowPlan.trim();
+  }
+
+  // Otherwise, convert fileType to proper plan name
+  const lowerFileType = fileType.toLowerCase();
+
+  if (lowerFileType === 'all plans') {
+    return 'All Plans';
+  }
+
+  // For other plan types, use title case of the fileType
+  return fileType
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+/**
+ * Helper to determine if an "All Plans" row should be skipped during import.
+ *
+ * "All Plans" rows are skipped ONLY when individual plan data exists for the same month.
+ * For files containing ONLY "All Plans" data (e.g., "All Plans Monthly" files),
+ * the rows are kept and imported.
+ *
+ * @param row - The current row being processed
+ * @param monthRows - All rows for this month
+ * @returns true if the row should be skipped, false otherwise
+ */
+function shouldSkipAllPlansRow(row: CsvRow, monthRows: CsvRow[]): boolean {
+  if (row.plan.toLowerCase() !== 'all plans') {
+    return false; // Not an "All Plans" row, never skip
+  }
+
+  // Check if there are individual plan rows in this month
+  const hasIndividualPlans = monthRows.some(r => r.plan.toLowerCase() !== 'all plans');
+  return hasIndividualPlans; // Skip "All Plans" only if individual plans exist
+}
+
 async function saveMonthlyData(
   clientId: string,
   planYearId: string,
@@ -80,10 +129,8 @@ async function saveMonthlyData(
 
       // Insert plan stats for this month
       for (const row of monthRows) {
-        // Skip "All Plans" row only if we have individual plan data for the same month
-        // For "All Plans Monthly" files, we want to keep the "All Plans" rows
-        const hasIndividualPlans = monthRows.some(r => r.plan.toLowerCase() !== 'all plans');
-        if (row.plan.toLowerCase() === 'all plans' && hasIndividualPlans) continue;
+        // Skip "All Plans" row if individual plan data exists
+        if (shouldSkipAllPlansRow(row, monthRows)) continue;
 
         const plan = plansByCode[row.plan.toLowerCase()];
         if (!plan) {
@@ -300,10 +347,10 @@ export async function POST(request: NextRequest) {
           }
         });
 
-        // Parse the row - plan comes from form data, not CSV
+        // Parse the row - plan comes from CSV or defaults to normalized fileType
         const parsedRow: CsvRow = {
           month: mappedRow.month,
-          plan: mappedRow.plan || (fileType === 'all plans' ? 'All Plans' : fileType),
+          plan: normalizePlanName(fileType, mappedRow.plan),
           subscribers: Number.parseInt(mappedRow.subscribers, 10) || 0,
           medicalPaid: Number.parseFloat(mappedRow.medical_paid) || 0,
           rxPaid: Number.parseFloat(mappedRow.rx_paid) || 0,
@@ -600,10 +647,8 @@ export async function PUT(request: NextRequest) {
 
         // Insert plan stats for this month
         for (const row of monthRows) {
-          // Skip "All Plans" row only if we have individual plan data for the same month
-          // For "All Plans Monthly" files, we want to keep the "All Plans" rows
-          const hasIndividualPlans = monthRows.some(r => r.plan.toLowerCase() !== 'all plans');
-          if (row.plan.toLowerCase() === 'all plans' && hasIndividualPlans) continue;
+          // Skip "All Plans" row if individual plan data exists
+          if (shouldSkipAllPlansRow(row, monthRows)) continue;
 
           const plan = plansByCode[row.plan.toLowerCase()];
           if (!plan) {
