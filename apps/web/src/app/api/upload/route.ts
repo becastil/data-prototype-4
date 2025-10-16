@@ -144,8 +144,11 @@ async function saveMonthlyData(
 
         const plan = plansByCode[row.plan.toLowerCase()];
         if (!plan) {
-          console.warn(`Plan not found: ${row.plan}`);
-          continue;
+          const availablePlans = plans.map(p => `"${p.name}" (code: ${p.code || 'none'})`).join(', ');
+          throw new Error(
+            `Plan "${row.plan}" not found in database. Available plans: ${availablePlans || 'none'}. ` +
+            `Please ensure the plan exists in the database before importing data.`
+          );
         }
 
         await tx.monthlyPlanStat.upsert({
@@ -682,8 +685,12 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error processing upload:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     return NextResponse.json(
-      { error: process.env.NODE_ENV === 'production' ? 'Internal server error' : String(error) },
+      {
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? String(error) : undefined
+      },
       { status: 500 }
     );
   }
