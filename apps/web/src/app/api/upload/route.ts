@@ -556,6 +556,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Reconciliation check: Σ per-plan must equal "All Plans" for each month
+    // Only run this check when file contains BOTH "All Plans" AND individual plan data
     const reconciliationErrors: string[] = [];
 
     if (fileType !== 'hcc') {
@@ -573,36 +574,43 @@ export async function POST(request: NextRequest) {
         return acc;
       }, {} as Record<string, { allPlans: CsvRow | null; plans: CsvRow[] }>);
 
-      Object.entries(byMonth).forEach(([month, data]) => {
-        if (!data.allPlans) {
-          reconciliationErrors.push(`Month ${month}: Missing "All Plans" row`);
-          return;
-        }
+      // Check if we have any individual plans in the data
+      const hasIndividualPlans = Object.values(byMonth).some(data => data.plans.length > 0);
+      const hasAllPlans = Object.values(byMonth).some(data => data.allPlans !== null);
 
-        const sumMedical = data.plans.reduce((sum, p) => sum + p.medicalPaid, 0);
-        const sumRx = data.plans.reduce((sum, p) => sum + p.rxPaid, 0);
-        const sumBudget = data.plans.reduce((sum, p) => sum + p.budgetedPremium, 0);
+      // Only perform reconciliation if we have BOTH "All Plans" and individual plan data
+      if (hasAllPlans && hasIndividualPlans) {
+        Object.entries(byMonth).forEach(([month, data]) => {
+          if (!data.allPlans) {
+            reconciliationErrors.push(`Month ${month}: Missing "All Plans" row`);
+            return;
+          }
 
-        const tolerance = 0.01;
+          const sumMedical = data.plans.reduce((sum, p) => sum + p.medicalPaid, 0);
+          const sumRx = data.plans.reduce((sum, p) => sum + p.rxPaid, 0);
+          const sumBudget = data.plans.reduce((sum, p) => sum + p.budgetedPremium, 0);
 
-        if (Math.abs(sumMedical - data.allPlans.medicalPaid) > tolerance) {
-          reconciliationErrors.push(
-            `Month ${month}: Medical Paid mismatch. Sum of plans: $${sumMedical.toFixed(2)}, All Plans: $${data.allPlans.medicalPaid.toFixed(2)}`
-          );
-        }
+          const tolerance = 0.01;
 
-        if (Math.abs(sumRx - data.allPlans.rxPaid) > tolerance) {
-          reconciliationErrors.push(
-            `Month ${month}: Rx Paid mismatch. Sum of plans: $${sumRx.toFixed(2)}, All Plans: $${data.allPlans.rxPaid.toFixed(2)}`
-          );
-        }
+          if (Math.abs(sumMedical - data.allPlans.medicalPaid) > tolerance) {
+            reconciliationErrors.push(
+              `Month ${month}: Medical Paid mismatch. Sum of plans: $${sumMedical.toFixed(2)}, All Plans: $${data.allPlans.medicalPaid.toFixed(2)}`
+            );
+          }
 
-        if (Math.abs(sumBudget - data.allPlans.budgetedPremium) > tolerance) {
-          reconciliationErrors.push(
-            `Month ${month}: Budgeted Premium mismatch. Sum of plans: $${sumBudget.toFixed(2)}, All Plans: $${data.allPlans.budgetedPremium.toFixed(2)}`
-          );
-        }
-      });
+          if (Math.abs(sumRx - data.allPlans.rxPaid) > tolerance) {
+            reconciliationErrors.push(
+              `Month ${month}: Rx Paid mismatch. Sum of plans: $${sumRx.toFixed(2)}, All Plans: $${data.allPlans.rxPaid.toFixed(2)}`
+            );
+          }
+
+          if (Math.abs(sumBudget - data.allPlans.budgetedPremium) > tolerance) {
+            reconciliationErrors.push(
+              `Month ${month}: Budgeted Premium mismatch. Sum of plans: $${sumBudget.toFixed(2)}, All Plans: $${data.allPlans.budgetedPremium.toFixed(2)}`
+            );
+          }
+        });
+      }
     }
 
     // Report sum validation errors if any

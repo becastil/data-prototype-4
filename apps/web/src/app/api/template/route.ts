@@ -19,10 +19,38 @@ export async function GET(request: NextRequest) {
 
     switch (type) {
       case 'all-plans':
+        // All Plans monthly data template - includes Plan column
+        headers = [
+          'Month',
+          'Plan',
+          'Total Subs',
+          'Medical Paid',
+          'Rx Paid',
+          'Spec Stop Los Est',
+          'Rx Rebate',
+          'Admin Fees',
+          'Stop Loss Fee',
+          'Budgeted Premi'
+        ];
+        sampleRow = [
+          '2024-01',
+          'All Plans',
+          '1501',
+          '125000',
+          '45000',
+          '-5000',
+          '-3000',
+          '8500',
+          '12000',
+          '180000'
+        ];
+        filename = `${type}-monthly-template.csv`;
+        break;
+
       case 'hdhp':
       case 'ppo-base':
       case 'ppo-buyup':
-        // Monthly plan data template - matches user's spreadsheet format
+        // Individual plan monthly data template - no Plan column needed
         headers = [
           'Month',
           'Total Subs',
