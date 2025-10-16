@@ -589,14 +589,19 @@ function UploadPageContent() {
             <button
               onClick={() => void handleConfirm()}
               disabled={
-                isProcessing || !previewResult?.success || Boolean(previewError)
+                isProcessing || !previewResult?.success || Boolean(previewError) || Boolean(importMessage)
               }
-              className="px-6 py-3 bg-accent-primary text-base-950 rounded-card font-medium hover:bg-emerald-400 transition-uber inline-flex items-center gap-2 disabled:opacity-50"
+              className="px-6 py-3 bg-accent-primary text-base-950 rounded-card font-medium hover:bg-emerald-400 transition-uber inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isProcessing ? (
                 <>
                   <div className="w-4 h-4 border-2 border-base-950 border-t-transparent rounded-full animate-spin" />
                   Processing...
+                </>
+              ) : importMessage ? (
+                <>
+                  <CheckCircle className="w-5 h-5" />
+                  Import Complete
                 </>
               ) : (
                 <>
