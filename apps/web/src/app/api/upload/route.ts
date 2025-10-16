@@ -292,11 +292,10 @@ export async function POST(request: NextRequest) {
     const errors: ValidationError[] = [];
 
     // Validate headers based on file type
-    const requiredHeaders = fileType === 'monthly'
-      ? ['month', 'subscribers', 'medical_paid', 'rx_paid', 'budgeted_premium']
-      : fileType === 'hcc'
+    // Treat all non-HCC uploads as monthly data (all plans, hdhp, ppo base, ppo buy-up)
+    const requiredHeaders = fileType === 'hcc'
       ? ['claimant_key', 'plan', 'total_paid', 'medical_paid', 'rx_paid']
-      : [];
+      : ['month', 'subscribers', 'medical_paid', 'rx_paid', 'budgeted_premium'];
 
     const missingHeaders = requiredHeaders.filter(h => !normalizedHeaders.includes(h));
     if (missingHeaders.length > 0) {
@@ -324,7 +323,8 @@ export async function POST(request: NextRequest) {
       });
 
       // Validate based on file type
-      if (fileType === 'monthly') {
+      // Treat all non-HCC uploads as monthly data
+      if (fileType !== 'hcc') {
         // Validate month format (YYYY-MM)
         if (!/^\d{4}-\d{2}$/.test(mappedRow.month)) {
           errors.push({
@@ -362,6 +362,25 @@ export async function POST(request: NextRequest) {
         };
 
         rows.push(parsedRow);
+      } else if (fileType === 'hcc') {
+        // Parse HCC (High-Cost Claimants) data
+        // Note: HCC data has different structure - claimant_key, plan, status, total_paid, medical_paid, rx_paid
+        // For now, we'll create a placeholder row to pass validation
+        // TODO: Implement proper HCC data storage (separate table/logic needed)
+        const parsedRow: CsvRow = {
+          month: '2024-01', // Placeholder - HCC doesn't have month
+          plan: mappedRow.plan || 'HCC',
+          subscribers: 0, // HCC doesn't have subscribers
+          medicalPaid: Number.parseFloat(mappedRow.medical_paid) || 0,
+          rxPaid: Number.parseFloat(mappedRow.rx_paid) || 0,
+          stopLossReimb: 0,
+          rxRebates: 0,
+          adminFees: 0,
+          stopLossFees: 0,
+          budgetedPremium: 0 // HCC doesn't have budgeted premium
+        };
+
+        rows.push(parsedRow);
       }
     }
 
@@ -393,7 +412,7 @@ export async function POST(request: NextRequest) {
 
     // Validate sum row if present
     const sumValidationErrors: string[] = [];
-    if (sumRow && fileType === 'monthly') {
+    if (sumRow && fileType !== 'hcc') {
       const tolerance = 1.0; // Allow $1 difference due to rounding
       const validatedSumRow: CsvRow = sumRow; // Type assertion for narrowing
 
@@ -453,7 +472,7 @@ export async function POST(request: NextRequest) {
     // Reconciliation check: Σ per-plan must equal "All Plans" for each month
     const reconciliationErrors: string[] = [];
 
-    if (fileType === 'monthly') {
+    if (fileType !== 'hcc') {
       const byMonth = dataRows.reduce((acc, row) => {
         if (!acc[row.month]) {
           acc[row.month] = { allPlans: null, plans: [] };
@@ -543,7 +562,27 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Save data to database
+    // Save data to database (only for non-HCC files)
+    if (fileType === 'hcc') {
+      // HCC files are validated but not saved (requires separate storage implementation)
+      return NextResponse.json({
+        success: true,
+        preview: {
+          rowCount: dataRows.length,
+          months: [],
+          plans: [...new Set(dataRows.map(r => r.plan))],
+          sampleRows: dataRows.slice(0, 5)
+        },
+        validation: {
+          dataRows: dataRows.length,
+          sumRowDetected: false,
+          sumValidationPassed: true
+        },
+        saved: false,
+        message: 'HCC file validated successfully. Note: HCC data storage is not yet implemented.'
+      });
+    }
+
     const importResult = await saveMonthlyData(clientId, planYearId, dataRows);
 
     // Return success with saved data confirmation
