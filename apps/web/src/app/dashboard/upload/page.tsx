@@ -2,17 +2,29 @@
 
 import { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Papa from 'papaparse';
 import {
   Upload,
   FileSpreadsheet,
   CheckCircle,
   Download,
-  ArrowRight,
+  X,
+  AlertCircle,
+  Loader2,
 } from 'lucide-react';
 
-type UploadStep = 'upload' | 'validate' | 'review';
 type FileType = 'all-plans' | 'hdhp' | 'ppo-base' | 'ppo-buyup' | 'high-claimants';
+
+type FileStatus = 'empty' | 'validating' | 'valid' | 'invalid' | 'imported';
+
+interface FileSlot {
+  id: FileType;
+  name: string;
+  description: string;
+  file: File | null;
+  status: FileStatus;
+  previewResult: UploadPreviewSuccess | null;
+  previewError: UploadPreviewError | null;
+}
 
 const templates = [
   { id: 'all-plans', name: 'All Plans Monthly', description: 'Aggregated monthly data across all plans' },
@@ -60,80 +72,47 @@ interface UploadPreviewError {
 const DEFAULT_CLIENT_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_PLAN_YEAR_ID = '00000000-0000-0000-0000-000000000301';
 
-const numberFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
-
-function formatSampleValue(key: string, value: unknown) {
-  if (typeof value === 'number') {
-    const lowerKey = key.toLowerCase();
-    if (lowerKey.includes('subscriber') || lowerKey.includes('count')) {
-      return numberFormatter.format(value);
-    }
-    return `$${numberFormatter.format(value)}`;
-  }
-  if (value === null || value === undefined || value === '') {
-    return '—';
-  }
-  return String(value);
-}
-
 function UploadPageContent() {
   const searchParams = useSearchParams();
   const clientId = searchParams.get('clientId') ?? DEFAULT_CLIENT_ID;
   const planYearId = searchParams.get('planYearId') ?? DEFAULT_PLAN_YEAR_ID;
 
-  const [currentStep, setCurrentStep] = useState<UploadStep>('upload');
-  const [selectedFileType, setSelectedFileType] = useState<FileType>('all-plans');
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [previewResult, setPreviewResult] = useState<UploadPreviewSuccess | null>(
-    null,
+  // Initialize file slots for all 5 file types
+  const [fileSlots, setFileSlots] = useState<FileSlot[]>(
+    templates.map(template => ({
+      id: template.id as FileType,
+      name: template.name,
+      description: template.description,
+      file: null,
+      status: 'empty' as FileStatus,
+      previewResult: null,
+      previewError: null,
+    }))
   );
-  const [previewError, setPreviewError] = useState<UploadPreviewError | null>(null);
+
+  const [isImporting, setIsImporting] = useState(false);
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [rawCsvPreview, setRawCsvPreview] = useState<{
-    headers: string[];
-    rows: string[][];
-  } | null>(null);
 
-  const handleDownloadTemplate = () => {
-    window.open(`/api/template?type=${selectedFileType}`, '_blank');
+  const handleDownloadTemplate = (fileType: FileType) => {
+    window.open(`/api/template?type=${fileType}`, '_blank');
   };
 
-  const handleFileUpload = async (file: File) => {
-    setUploadedFile(file);
-    setPreviewResult(null);
-    setPreviewError(null);
-    setImportMessage(null);
-    setImportError(null);
-    setRawCsvPreview(null);
+  // Handle file selection for a specific slot
+  const handleFileSelect = async (fileType: FileType, file: File) => {
+    // Update slot with file and set status to validating
+    setFileSlots(prev => prev.map(slot =>
+      slot.id === fileType
+        ? { ...slot, file, status: 'validating' as FileStatus, previewResult: null, previewError: null }
+        : slot
+    ));
 
-    // Parse CSV to show immediate preview using PapaParse for proper handling
-    try {
-      const text = await file.text();
-      const parseResult = Papa.parse<string[]>(text, {
-        preview: 6, // Only parse first 6 rows for preview
-        skipEmptyLines: true,
-      });
-
-      if (parseResult.data && parseResult.data.length > 0) {
-        const headers = parseResult.data[0];
-        const dataRows = parseResult.data.slice(1);
-        setRawCsvPreview({ headers, rows: dataRows });
-      }
-    } catch (error) {
-      console.error('CSV preview parsing failed:', error);
-      // Don't block upload if preview fails - just skip the preview
-    }
-
-    setCurrentStep('validate');
-    setIsProcessing(true);
-
+    // Validate the file
     const formData = new FormData();
     formData.append('file', file);
     formData.append('clientId', clientId);
     formData.append('planYearId', planYearId);
-    formData.append('fileType', fileTypeToApiType[selectedFileType]);
+    formData.append('fileType', fileTypeToApiType[fileType]);
 
     try {
       const response = await fetch('/api/upload?preview=true', {
@@ -164,453 +143,355 @@ function UploadPageContent() {
           issues.push(...body.sumValidationErrors);
         }
 
-        setPreviewError({
-          message: body?.message ?? 'Validation failed.',
-          issues: issues.length > 0 ? issues : null,
-        });
-        setPreviewResult(null);
+        setFileSlots(prev => prev.map(slot =>
+          slot.id === fileType
+            ? {
+                ...slot,
+                status: 'invalid' as FileStatus,
+                previewError: {
+                  message: body?.message ?? 'Validation failed.',
+                  issues: issues.length > 0 ? issues : null,
+                }
+              }
+            : slot
+        ));
       } else {
-        setPreviewResult(body as UploadPreviewSuccess);
-        setPreviewError(null);
+        setFileSlots(prev => prev.map(slot =>
+          slot.id === fileType
+            ? {
+                ...slot,
+                status: 'valid' as FileStatus,
+                previewResult: body as UploadPreviewSuccess
+              }
+            : slot
+        ));
       }
     } catch (error) {
-      setPreviewError({
-        message:
-          error instanceof Error ? error.message : 'Validation failed. Please try again.',
-        issues: null,
-      });
-      setPreviewResult(null);
-    } finally {
-      setIsProcessing(false);
-      setCurrentStep('review');
+      setFileSlots(prev => prev.map(slot =>
+        slot.id === fileType
+          ? {
+              ...slot,
+              status: 'invalid' as FileStatus,
+              previewError: {
+                message: error instanceof Error ? error.message : 'Validation failed. Please try again.',
+                issues: null,
+              }
+            }
+          : slot
+      ));
     }
   };
 
-  const handleConfirm = async () => {
-    if (!uploadedFile) {
+  // Remove file from slot
+  const handleFileRemove = (fileType: FileType) => {
+    setFileSlots(prev => prev.map(slot =>
+      slot.id === fileType
+        ? { ...slot, file: null, status: 'empty' as FileStatus, previewResult: null, previewError: null }
+        : slot
+    ));
+  };
+
+  // Import all valid files
+  const handleConfirmAll = async () => {
+    const validSlots = fileSlots.filter(slot => slot.status === 'valid' && slot.file);
+
+    if (validSlots.length === 0) {
       return;
     }
-    setIsProcessing(true);
+
+    setIsImporting(true);
     setImportMessage(null);
     setImportError(null);
 
-    const formData = new FormData();
-    formData.append('file', uploadedFile);
-    formData.append('clientId', clientId);
-    formData.append('planYearId', planYearId);
-    formData.append('fileType', fileTypeToApiType[selectedFileType]);
-
     try {
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      const body = await response
-        .json()
-        .catch(() => ({ error: 'Import failed.' }));
+      // Import each file sequentially
+      const results = [];
+      for (const slot of validSlots) {
+        if (!slot.file) continue;
 
-      if (!response.ok) {
-        throw new Error(body?.error ?? 'Import failed.');
+        const formData = new FormData();
+        formData.append('file', slot.file);
+        formData.append('clientId', clientId);
+        formData.append('planYearId', planYearId);
+        formData.append('fileType', fileTypeToApiType[slot.id]);
+
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        const body = await response
+          .json()
+          .catch(() => ({ error: 'Import failed.' }));
+
+        if (!response.ok) {
+          throw new Error(`${slot.name}: ${body?.error ?? 'Import failed'}`);
+        }
+
+        results.push(slot.name);
+
+        // Update slot status to imported
+        setFileSlots(prev => prev.map(s =>
+          s.id === slot.id ? { ...s, status: 'imported' as FileStatus } : s
+        ));
       }
 
-      setPreviewResult(body as UploadPreviewSuccess);
-      setImportMessage(body?.message ?? 'Data uploaded successfully.');
+      setImportMessage(`Successfully imported ${results.length} file(s): ${results.join(', ')}`);
       setImportError(null);
     } catch (error) {
       setImportError(
         error instanceof Error ? error.message : 'Import failed. Please try again.',
       );
     } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file && (file.name.endsWith('.csv') || file.name.endsWith('.xlsx'))) {
-      void handleFileUpload(file);
+      setIsImporting(false);
     }
   };
 
   const resetWizard = () => {
-    setCurrentStep('upload');
-    setUploadedFile(null);
-    setPreviewResult(null);
-    setPreviewError(null);
+    setFileSlots(templates.map(template => ({
+      id: template.id as FileType,
+      name: template.name,
+      description: template.description,
+      file: null,
+      status: 'empty' as FileStatus,
+      previewResult: null,
+      previewError: null,
+    })));
     setImportMessage(null);
     setImportError(null);
-    setRawCsvPreview(null);
-    setIsProcessing(false);
   };
 
-  const previewColumns: Array<{ key: string; label: string }> =
-    selectedFileType === 'high-claimants'
-      ? [
-          { key: 'claimant_key', label: 'Claimant Key' },
-          { key: 'plan', label: 'Plan' },
-          { key: 'status', label: 'Status' },
-          { key: 'medical_paid', label: 'Medical Paid' },
-          { key: 'rx_paid', label: 'Rx Paid' },
-        ]
-      : [
-          { key: 'month', label: 'Month' },
-          { key: 'plan', label: 'Plan' },
-          { key: 'subscribers', label: 'Subscribers' },
-          { key: 'medicalPaid', label: 'Medical' },
-          { key: 'rxPaid', label: 'Pharmacy' },
-          { key: 'budgetedPremium', label: 'Budgeted Premium' },
-        ];
+  // Helper to count files by status
+  const fileCount = {
+    total: fileSlots.filter(slot => slot.file).length,
+    valid: fileSlots.filter(slot => slot.status === 'valid').length,
+    invalid: fileSlots.filter(slot => slot.status === 'invalid').length,
+    imported: fileSlots.filter(slot => slot.status === 'imported').length,
+  };
 
   return (
     <div className="p-8 space-y-8">
       {/* Page Header */}
-      <div>
-        <h1 className="text-3xl font-bold">Upload Data</h1>
-        <p className="text-slate-400 mt-2">Import monthly claims and expense data</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Upload Data</h1>
+          <p className="text-slate-400 mt-2">Import monthly claims and expense data - upload one or all file types</p>
+        </div>
+        {fileCount.total > 0 && (
+          <div className="text-sm">
+            <span className="text-slate-400">Files selected: </span>
+            <span className="font-semibold text-accent-primary">{fileCount.total}/5</span>
+            {fileCount.valid > 0 && (
+              <span className="ml-3 text-status-green">
+                {fileCount.valid} valid
+              </span>
+            )}
+            {fileCount.invalid > 0 && (
+              <span className="ml-3 text-status-red">
+                {fileCount.invalid} invalid
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Step Indicator */}
-      <div className="flex items-center justify-center gap-4">
-        <div
-          className={`flex items-center gap-2 ${
-            currentStep === 'upload' ? 'text-accent-primary' : 'text-status-green'
-          }`}
-        >
-          <div
-            className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
-              currentStep === 'upload'
-                ? 'border-accent-primary bg-accent-primary/10'
-                : 'border-status-green bg-status-green/10'
-            }`}
-          >
-            {currentStep !== 'upload' ? <CheckCircle className="w-5 h-5" /> : '1'}
-          </div>
-          <span className="text-sm font-medium">Upload</span>
-        </div>
+      {/* File Upload Slots */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {fileSlots.map((slot) => {
+          const statusColor = {
+            empty: 'border-slate-700',
+            validating: 'border-accent-primary',
+            valid: 'border-status-green',
+            invalid: 'border-status-red',
+            imported: 'border-accent-primary',
+          }[slot.status];
 
-        <ArrowRight className="w-5 h-5 text-slate-600" />
+          const statusBg = {
+            empty: 'bg-base-900',
+            validating: 'bg-accent-primary/5',
+            valid: 'bg-status-green/5',
+            invalid: 'bg-status-red/5',
+            imported: 'bg-accent-primary/10',
+          }[slot.status];
 
-        <div
-          className={`flex items-center gap-2 ${
-            currentStep === 'validate'
-              ? 'text-accent-primary'
-              : currentStep === 'review'
-              ? 'text-status-green'
-              : 'text-slate-500'
-          }`}
-        >
-          <div
-            className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
-              currentStep === 'validate'
-                ? 'border-accent-primary bg-accent-primary/10'
-                : currentStep === 'review'
-                ? 'border-status-green bg-status-green/10'
-                : 'border-slate-700'
-            }`}
-          >
-            {currentStep === 'review' ? <CheckCircle className="w-5 h-5" /> : '2'}
-          </div>
-          <span className="text-sm font-medium">Validate</span>
-        </div>
-
-        <ArrowRight className="w-5 h-5 text-slate-600" />
-
-        <div
-          className={`flex items-center gap-2 ${
-            currentStep === 'review' ? 'text-accent-primary' : 'text-slate-500'
-          }`}
-        >
-          <div
-            className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${
-              currentStep === 'review' ? 'border-accent-primary bg-accent-primary/10' : 'border-slate-700'
-            }`}
-          >
-            3
-          </div>
-          <span className="text-sm font-medium">Review</span>
-        </div>
-      </div>
-
-      {/* Step 1: Upload */}
-      {currentStep === 'upload' && (
-        <div className="space-y-6">
-          {/* File Type Selection */}
-          <div className="report-card">
-            <h3 className="text-lg font-semibold mb-4">Select Data Type</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {templates.map((template) => (
-                <button
-                  key={template.id}
-                  onClick={() => setSelectedFileType(template.id as FileType)}
-                  className={`p-4 rounded-card border-2 text-left transition-uber ${
-                    selectedFileType === template.id
-                      ? 'border-accent-primary bg-accent-primary/10'
-                      : 'border-slate-700 hover:border-slate-600'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <FileSpreadsheet
-                      className={`w-5 h-5 mt-0.5 ${
-                        selectedFileType === template.id
-                          ? 'text-accent-primary'
-                          : 'text-slate-400'
-                      }`}
-                    />
-                    <div>
-                      <div className="font-semibold">{template.name}</div>
-                      <div className="text-xs text-slate-400 mt-1">
-                        {template.description}
-                      </div>
-                    </div>
+          return (
+            <div key={slot.id} className={`report-card border-2 ${statusColor} ${statusBg} transition-uber`}>
+              {/* Header */}
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-start gap-3">
+                  <FileSpreadsheet className="w-5 h-5 text-slate-400 mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold">{slot.name}</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">{slot.description}</p>
                   </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Drop Zone */}
-          <div
-            className="report-card border-2 border-dashed border-slate-700 hover:border-accent-primary transition-uber cursor-pointer"
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-            onClick={() => document.getElementById('file-input')?.click()}
-          >
-            <div className="py-12 text-center">
-              <Upload className="w-16 h-16 mx-auto text-slate-400 mb-4" />
-              <h3 className="text-xl font-semibold mb-2">Drop your file here</h3>
-              <p className="text-slate-400 mb-4">or click to browse</p>
-              <p className="text-sm text-slate-500">Supports CSV and XLSX files</p>
-            </div>
-            <input
-              id="file-input"
-              type="file"
-              accept=".csv,.xlsx"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  void handleFileUpload(file);
-                }
-              }}
-            />
-          </div>
-
-          {/* Template Download */}
-          <div className="report-card bg-accent-info/5 border-accent-info/20">
-            <div className="flex items-start gap-3">
-              <Download className="w-5 h-5 text-accent-info mt-0.5" />
-              <div>
-                <h4 className="font-semibold text-accent-info mb-1">Need a template?</h4>
-                <p className="text-sm text-slate-300">
-                  Download the CSV template for{' '}
-                  {templates.find((t) => t.id === selectedFileType)?.name}
-                </p>
+                </div>
                 <button
-                  onClick={handleDownloadTemplate}
-                  className="mt-2 text-sm text-accent-info hover:underline inline-flex items-center gap-2"
-                  aria-label="Download CSV template"
+                  onClick={() => handleDownloadTemplate(slot.id)}
+                  className="text-accent-info hover:text-accent-info/80 transition-uber"
+                  title="Download template"
                 >
-                  <Download className="w-4 h-4" aria-hidden="true" />
-                  Download Template
+                  <Download className="w-4 h-4" />
                 </button>
               </div>
-            </div>
-          </div>
 
-          {/* CSV Preview */}
-          {rawCsvPreview && (
-            <div className="report-card">
-              <h3 className="text-lg font-semibold mb-4">CSV Preview</h3>
-              <p className="text-sm text-slate-400 mb-3">
-                First {rawCsvPreview.rows.length} rows from your file
-              </p>
-              <div className="overflow-x-auto">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      {rawCsvPreview.headers.map((header, idx) => (
-                        <th key={idx}>{header}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rawCsvPreview.rows.map((row, rowIdx) => (
-                      <tr key={rowIdx}>
-                        {row.map((cell, cellIdx) => (
-                          <td key={cellIdx}>{cell}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Step 2: Validate (with "On our way" feedback) */}
-      {currentStep === 'validate' && isProcessing && (
-        <div className="report-card">
-          <div className="py-12 text-center">
-            <div className="inline-flex items-center gap-3 status-pill on-way mb-4">
-              <div className="w-3 h-3 rounded-full bg-accent-primary animate-pulse" />
-              <span>Validating your data—on its way</span>
-            </div>
-            <div className="h-2 bg-base-950 rounded-full overflow-hidden max-w-md mx-auto">
-              <div className="h-full bg-accent-primary animate-shimmer" style={{ width: '100%' }} />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Review */}
-      {currentStep === 'review' && (
-        <div className="space-y-6">
-          {previewError && (
-            <div className="report-card border border-status-red/30 bg-status-red/10">
-              <h3 className="text-lg font-semibold mb-2 text-status-red">Validation failed</h3>
-              <p className="text-sm text-status-red/90">{previewError.message}</p>
-              {previewError.issues && (
-                <ul className="mt-3 space-y-2 text-sm text-status-red/80 list-disc list-inside">
-                  {previewError.issues.map((issue, index) => (
-                    <li key={index}>{issue}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
-          {previewResult && (
-            <>
-              <div className="report-card">
-                <h3 className="text-lg font-semibold mb-4">Validation Summary</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                  <div className="p-3 bg-base-900 rounded-card border border-slate-800">
-                    <div className="text-slate-400">Rows Detected</div>
-                    <div className="text-lg font-semibold text-text-dark">
-                      {previewResult.preview.rowCount}
-                    </div>
-                  </div>
-                  <div className="p-3 bg-base-900 rounded-card border border-slate-800">
-                    <div className="text-slate-400">Months Covered</div>
-                    <div className="text-lg font-semibold text-text-dark">
-                      {previewResult.preview.months.join(', ') || '—'}
-                    </div>
-                  </div>
-                  <div className="p-3 bg-base-900 rounded-card border border-slate-800">
-                    <div className="text-slate-400">Plans Included</div>
-                    <div className="text-lg font-semibold text-text-dark">
-                      {previewResult.preview.plans.join(', ') || '—'}
-                    </div>
-                  </div>
+              {/* Upload Area or File Info */}
+              {!slot.file ? (
+                <div
+                  className="border-2 border-dashed border-slate-700 hover:border-accent-primary rounded-card p-6 text-center cursor-pointer transition-uber"
+                  onClick={() => document.getElementById(`file-input-${slot.id}`)?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const file = e.dataTransfer.files[0];
+                    if (file && (file.name.endsWith('.csv') || file.name.endsWith('.xlsx'))) {
+                      void handleFileSelect(slot.id, file);
+                    }
+                  }}
+                >
+                  <Upload className="w-8 h-8 mx-auto text-slate-400 mb-2" />
+                  <p className="text-sm text-slate-400">Drop file or click to browse</p>
+                  <p className="text-xs text-slate-500 mt-1">CSV or XLSX</p>
+                  <input
+                    id={`file-input-${slot.id}`}
+                    type="file"
+                    accept=".csv,.xlsx"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        void handleFileSelect(slot.id, file);
+                      }
+                    }}
+                  />
                 </div>
-                <div className="mt-4 text-sm text-slate-300">
-                  <div>
-                    <CheckCircle className="inline w-4 h-4 text-status-green mr-2" />
-                    Header check passed
-                  </div>
-                  <div>
-                    <CheckCircle className={`inline w-4 h-4 mr-2 ${
-                      previewResult.validation.sumValidationPassed
-                        ? 'text-status-green'
-                        : 'text-status-red'
-                    }`} />
-                    Sum row validation{' '}
-                    {previewResult.validation.sumValidationPassed ? 'passed' : 'failed'}
-                  </div>
-                  <div className="mt-2 text-slate-400">{previewResult.message}</div>
-                </div>
-              </div>
-
-              {previewResult.preview.sampleRows.length > 0 && (
-                <div className="report-card">
-                  <h3 className="text-lg font-semibold mb-4">Sample Rows</h3>
-                  <div className="overflow-x-auto">
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          {previewColumns.map((column) => (
-                            <th key={column.key}>{column.label}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {previewResult.preview.sampleRows.map((row, index) => (
-                          <tr key={index}>
-                            {previewColumns.map((column) => (
-                              <td key={column.key} className="text-right">
-                                {formatSampleValue(column.key, row[column.key])}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {importMessage && (
-            <div className="report-card border border-status-green/30 bg-status-green/10 text-status-green">
-              <h3 className="text-lg font-semibold mb-1">Import complete</h3>
-              <p className="text-sm">{importMessage}</p>
-              {previewResult?.import && (
-                <p className="text-xs text-status-green/80 mt-2">
-                  Imported {previewResult.import.rowsImported} rows across{' '}
-                  {previewResult.import.monthsImported} month(s).
-                </p>
-              )}
-            </div>
-          )}
-
-          {importError && (
-            <div className="report-card border border-status-red/30 bg-status-red/10 text-status-red">
-              <h3 className="text-lg font-semibold mb-1">Import failed</h3>
-              <p className="text-sm">{importError}</p>
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          <div className="flex justify-between">
-            <button
-              onClick={resetWizard}
-              className="px-6 py-3 bg-base-900 border border-slate-700 rounded-card font-medium hover:bg-base-800 transition-uber"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => void handleConfirm()}
-              disabled={
-                isProcessing || !previewResult?.success || Boolean(previewError) || Boolean(importMessage)
-              }
-              className="px-6 py-3 bg-accent-primary text-base-950 rounded-card font-medium hover:bg-emerald-400 transition-uber inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isProcessing ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-base-950 border-t-transparent rounded-full animate-spin" />
-                  Processing...
-                </>
-              ) : importMessage ? (
-                <>
-                  <CheckCircle className="w-5 h-5" />
-                  Import Complete
-                </>
               ) : (
-                <>
-                  <CheckCircle className="w-5 h-5" />
-                  Confirm & Import
-                </>
+                <div className="space-y-3">
+                  {/* File Name */}
+                  <div className="flex items-center justify-between p-3 bg-base-900 rounded-card">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <FileSpreadsheet className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                      <span className="text-sm truncate">{slot.file.name}</span>
+                    </div>
+                    {slot.status !== 'validating' && slot.status !== 'imported' && (
+                      <button
+                        onClick={() => handleFileRemove(slot.id)}
+                        className="text-slate-400 hover:text-status-red transition-uber flex-shrink-0"
+                        title="Remove file"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Status */}
+                  <div className="flex items-center gap-2 text-sm">
+                    {slot.status === 'validating' && (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-accent-primary" />
+                        <span className="text-accent-primary">Validating...</span>
+                      </>
+                    )}
+                    {slot.status === 'valid' && (
+                      <>
+                        <CheckCircle className="w-4 h-4 text-status-green" />
+                        <span className="text-status-green">Valid - ready to import</span>
+                      </>
+                    )}
+                    {slot.status === 'invalid' && (
+                      <>
+                        <AlertCircle className="w-4 h-4 text-status-red" />
+                        <span className="text-status-red">Validation failed</span>
+                      </>
+                    )}
+                    {slot.status === 'imported' && (
+                      <>
+                        <CheckCircle className="w-4 h-4 text-accent-primary" />
+                        <span className="text-accent-primary">Imported successfully</span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Error Details */}
+                  {slot.previewError && (
+                    <div className="text-xs text-status-red/90 p-3 bg-status-red/10 rounded-card">
+                      <p className="font-semibold mb-1">{slot.previewError.message}</p>
+                      {slot.previewError.issues && (
+                        <ul className="list-disc list-inside space-y-0.5 mt-2">
+                          {slot.previewError.issues.slice(0, 3).map((issue, idx) => (
+                            <li key={idx}>{issue}</li>
+                          ))}
+                          {slot.previewError.issues.length > 3 && (
+                            <li className="text-slate-400">
+                              ... and {slot.previewError.issues.length - 3} more
+                            </li>
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Success Preview */}
+                  {slot.previewResult && (
+                    <div className="text-xs text-slate-400 p-3 bg-base-900 rounded-card space-y-1">
+                      <div><span className="text-slate-500">Rows:</span> {slot.previewResult.preview.rowCount}</div>
+                      {slot.previewResult.preview.months.length > 0 && (
+                        <div><span className="text-slate-500">Months:</span> {slot.previewResult.preview.months.join(', ')}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
-            </button>
-          </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Import Messages */}
+      {importMessage && (
+        <div className="report-card border border-status-green/30 bg-status-green/10 text-status-green">
+          <h3 className="text-lg font-semibold mb-1">Import complete</h3>
+          <p className="text-sm">{importMessage}</p>
+        </div>
+      )}
+
+      {importError && (
+        <div className="report-card border border-status-red/30 bg-status-red/10 text-status-red">
+          <h3 className="text-lg font-semibold mb-1">Import failed</h3>
+          <p className="text-sm">{importError}</p>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      {fileCount.total > 0 && (
+        <div className="flex justify-between items-center">
+          <button
+            onClick={resetWizard}
+            className="px-6 py-3 bg-base-900 border border-slate-700 rounded-card font-medium hover:bg-base-800 transition-uber"
+            disabled={isImporting}
+          >
+            Reset All
+          </button>
+          <button
+            onClick={() => void handleConfirmAll()}
+            disabled={isImporting || fileCount.valid === 0 || fileCount.imported > 0}
+            className="px-6 py-3 bg-accent-primary text-base-950 rounded-card font-medium hover:bg-emerald-400 transition-uber inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isImporting ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Importing...
+              </>
+            ) : fileCount.imported > 0 ? (
+              <>
+                <CheckCircle className="w-5 h-5" />
+                Import Complete
+              </>
+            ) : (
+              <>
+                <CheckCircle className="w-5 h-5" />
+                Import {fileCount.valid} File{fileCount.valid !== 1 ? 's' : ''}
+              </>
+            )}
+          </button>
         </div>
       )}
     </div>
