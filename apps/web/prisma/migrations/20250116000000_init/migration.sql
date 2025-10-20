@@ -1,3 +1,36 @@
+-- Preserve legacy tables before creating the new schema
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'users'
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'users_legacy'
+  ) THEN
+    EXECUTE 'ALTER TABLE "public"."users" RENAME TO "users_legacy"';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'dashboard_configs'
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'dashboard_configs_legacy'
+  ) THEN
+    EXECUTE 'ALTER TABLE "public"."dashboard_configs" RENAME TO "dashboard_configs_legacy"';
+  END IF;
+END $$;
+
 -- CreateEnum
 CREATE TYPE "PlanType" AS ENUM ('HDHP', 'PPO_BASE', 'PPO_BUYUP', 'ALL_PLANS');
 
@@ -230,6 +263,46 @@ CREATE TABLE "User" (
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
+
+DO $$ DECLARE
+  uses_snake_case BOOLEAN := FALSE;
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'users_legacy'
+  ) THEN
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'users_legacy'
+        AND column_name = 'created_at'
+    )
+    INTO uses_snake_case;
+
+    IF uses_snake_case THEN
+      EXECUTE '
+        INSERT INTO "public"."User" ("id", "email", "role", "client_id", "createdAt", "updatedAt")
+        SELECT id, email, role, client_id,
+               COALESCE(created_at, NOW()),
+               COALESCE(updated_at, NOW())
+        FROM "public"."users_legacy"
+        ON CONFLICT ("id") DO NOTHING
+      ';
+    ELSE
+      EXECUTE '
+        INSERT INTO "public"."User" ("id", "email", "role", "client_id", "createdAt", "updatedAt")
+        SELECT id, email, role, client_id,
+               COALESCE("createdAt", NOW()),
+               COALESCE("updatedAt", NOW())
+        FROM "public"."users_legacy"
+        ON CONFLICT ("id") DO NOTHING
+      ';
+    END IF;
+  END IF;
+END $$;
 
 -- CreateTable
 CREATE TABLE "AuditLog" (
@@ -543,4 +616,3 @@ ALTER TABLE "EmailDeliveryLog" ADD CONSTRAINT "EmailDeliveryLog_plan_year_id_fke
 
 -- AddForeignKey
 ALTER TABLE "EmailDeliveryLog" ADD CONSTRAINT "EmailDeliveryLog_sent_by_fkey" FOREIGN KEY ("sent_by") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-

@@ -15,13 +15,20 @@ The error you're seeing is because Render is looking in the wrong directory. Her
 
    **Build Command**:
    ```bash
-   npm ci && cd apps/web && npx prisma generate && cd ../.. && npm run build
+   npm ci && cd apps/web && npx prisma migrate deploy && npx prisma generate && cd ../.. && npm run build
    ```
 
    **Start Command**:
    ```bash
-   cd apps/web && npx prisma migrate deploy && npm start
+   cd apps/web && npm start
    ```
+
+   **Pre-Deploy Command** (Advanced settings):
+   ```bash
+   cd apps/web && npx prisma migrate deploy && npx prisma db seed
+   ```
+
+   > ⚠️ **Do not add a `prisma db push` fallback.** The new migration keeps existing data intact, and forcing `db push` will bypass those safeguards.
 
 5. **Click "Save Changes"**
 6. **Trigger a manual deploy**
@@ -80,11 +87,11 @@ git push origin main
 7. **Runtime**: `Node`
 8. **Build Command**:
    ```bash
-   npm ci && cd apps/web && npx prisma generate && cd ../.. && npm run build
+   npm ci && cd apps/web && npx prisma migrate deploy && npx prisma generate && cd ../.. && npm run build
    ```
 9. **Start Command**:
    ```bash
-   cd apps/web && npx prisma migrate deploy && npm start
+   cd apps/web && npm start
    ```
 10. **Plan**: Start with Starter ($7/month)
 

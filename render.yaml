@@ -17,6 +17,11 @@ services:
       # Retry yarn install with increased timeout and retry logic
       yarn install --frozen-lockfile --network-timeout 1000000 || (sleep 10 && yarn install --frozen-lockfile --network-timeout 1000000)
       cd apps/web
+      if [ -z "${DATABASE_URL}" ]; then
+        echo "DATABASE_URL is not set; skipping prisma migrate deploy."
+      else
+        npx prisma migrate deploy
+      fi
       npx prisma generate
       cd ../..
       yarn build
