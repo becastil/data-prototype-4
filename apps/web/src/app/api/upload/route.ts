@@ -39,6 +39,66 @@ interface ValidationError {
 const toJsonValue = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
 
+const PLAN_NAME_ALIASES: Record<string, string> = {
+  'all plans': 'All Plans',
+  'hdhp': 'HDHP',
+  'ppo base': 'PPO Base',
+  'ppo buy up': 'PPO Buy-Up',
+  'ppo buy-up': 'PPO Buy-Up',
+  'ppo buyup': 'PPO Buy-Up'
+};
+
+function normalizePlanKey(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/-/g, ' ')
+    .replace(/\bmonthly\b/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function canonicalizePlanLabel(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const normalized = trimmed.toLowerCase().replace(/-/g, ' ');
+  const withoutMonthly = normalized.replace(/\bmonthly\b/g, '').replace(/\s+/g, ' ').trim();
+  const cleaned = withoutMonthly.replace(/\bplan\b$/, '').trim();
+  const alias = PLAN_NAME_ALIASES[cleaned];
+
+  if (alias) {
+    return alias;
+  }
+
+  return cleaned
+    .split(' ')
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function buildPlanLookup(plans: Plan[]): Record<string, Plan> {
+  return plans.reduce<Record<string, Plan>>((acc, plan) => {
+    const variants = new Set<string>([
+      plan.name,
+      canonicalizePlanLabel(plan.name),
+      plan.code ?? '',
+      `${plan.name} Monthly`,
+      plan.code ? `${plan.code} Monthly` : ''
+    ]);
+
+    variants.forEach(variant => {
+      const value = variant.trim();
+      if (!value) return;
+      acc[value.toLowerCase()] = plan;
+      acc[normalizePlanKey(value)] = plan;
+    });
+
+    return acc;
+  }, {});
+}
+
 /**
  * Helper to normalize plan names from file type.
  * Converts lowercase file type identifiers to proper title case plan names.
@@ -48,23 +108,17 @@ const toJsonValue = (value: unknown): Prisma.InputJsonValue =>
  * @returns Properly cased plan name
  */
 function normalizePlanName(fileType: string, mappedRowPlan?: string): string {
-  // If plan is in the CSV, use it directly
-  if (mappedRowPlan && mappedRowPlan.trim()) {
-    return mappedRowPlan.trim();
+  const source = mappedRowPlan && mappedRowPlan.trim()
+    ? mappedRowPlan
+    : fileType;
+
+  const canonical = canonicalizePlanLabel(source);
+  if (canonical) {
+    return canonical;
   }
 
-  // Otherwise, convert fileType to proper plan name
-  const lowerFileType = fileType.toLowerCase();
-
-  if (lowerFileType === 'all plans') {
-    return 'All Plans';
-  }
-
-  // For other plan types, use title case of the fileType
-  return fileType
-    .split(' ')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(' ');
+  // Fallback for unexpected inputs
+  return canonicalizePlanLabel('All Plans');
 }
 
 /**
@@ -79,12 +133,12 @@ function normalizePlanName(fileType: string, mappedRowPlan?: string): string {
  * @returns true if the row should be skipped, false otherwise
  */
 function shouldSkipAllPlansRow(row: CsvRow, monthRows: CsvRow[]): boolean {
-  if (row.plan.toLowerCase() !== 'all plans') {
+  if (normalizePlanKey(row.plan) !== 'allplans') {
     return false; // Not an "All Plans" row, never skip
   }
 
   // Check if there are individual plan rows in this month
-  const hasIndividualPlans = monthRows.some(r => r.plan.toLowerCase() !== 'all plans');
+  const hasIndividualPlans = monthRows.some(r => normalizePlanKey(r.plan) !== 'allplans');
   return hasIndividualPlans; // Skip "All Plans" only if individual plans exist
 }
 
@@ -98,11 +152,7 @@ async function saveMonthlyData(
     where: { clientId }
   });
 
-  const plansByCode = plans.reduce<Record<string, Plan>>((acc, plan) => {
-    const key = (plan.code || plan.name).toLowerCase();
-    acc[key] = plan;
-    return acc;
-  }, {});
+  const plansByCode = buildPlanLookup(plans);
 
   // Group by month
   const byMonth = dataRows.reduce<Record<string, CsvRow[]>>((acc, row) => {
@@ -142,7 +192,9 @@ async function saveMonthlyData(
         // Skip "All Plans" row if individual plan data exists
         if (shouldSkipAllPlansRow(row, monthRows)) continue;
 
-        const plan = plansByCode[row.plan.toLowerCase()];
+        const directKey = row.plan.toLowerCase();
+        const normalizedKey = normalizePlanKey(row.plan);
+        const plan = plansByCode[directKey] ?? plansByCode[normalizedKey];
         if (!plan) {
           const availablePlans = plans.map(p => `"${p.name}" (code: ${p.code || 'none'})`).join(', ');
           throw new Error(
@@ -727,11 +779,7 @@ export async function PUT(request: NextRequest) {
       where: { clientId }
     });
 
-    const plansByCode = plans.reduce<Record<string, Plan>>((acc, plan) => {
-      const key = (plan.code || plan.name).toLowerCase();
-      acc[key] = plan;
-      return acc;
-    }, {});
+    const plansByCode = buildPlanLookup(plans);
 
     // Group by month
     const byMonth = incomingRows.reduce<Record<string, CsvRow[]>>((acc, row) => {
@@ -769,7 +817,9 @@ export async function PUT(request: NextRequest) {
           // Skip "All Plans" row if individual plan data exists
           if (shouldSkipAllPlansRow(row, monthRows)) continue;
 
-          const plan = plansByCode[row.plan.toLowerCase()];
+          const directKey = row.plan.toLowerCase();
+          const normalizedKey = normalizePlanKey(row.plan);
+          const plan = plansByCode[directKey] ?? plansByCode[normalizedKey];
           if (!plan) {
             console.warn(`Plan not found: ${row.plan}`);
             continue;

@@ -17,9 +17,8 @@ services:
       npm ci
       cd apps/web
       npx prisma generate
-      npx prisma db push --accept-data-loss
-      npm install -g tsx
-      tsx prisma/seed.ts
+      npx prisma migrate deploy
+      npx prisma db seed
       cd ../..
       npm run build --filter=@medical-reporting/web
 
