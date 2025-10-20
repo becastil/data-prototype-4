@@ -12,9 +12,10 @@ services:
     # Root directory is the monorepo root
     rootDir: .
 
-    # Build configuration
+    # Build configuration with retry logic for network issues
     buildCommand: |
-      yarn install --frozen-lockfile
+      # Retry yarn install with increased timeout and retry logic
+      yarn install --frozen-lockfile --network-timeout 1000000 || (sleep 10 && yarn install --frozen-lockfile --network-timeout 1000000)
       cd apps/web
       npx prisma generate
       cd ../..
