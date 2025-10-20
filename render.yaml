@@ -16,24 +16,17 @@ services:
     buildCommand: |
       # Retry yarn install with increased timeout and retry logic
       yarn install --frozen-lockfile --network-timeout 1000000 || (sleep 10 && yarn install --frozen-lockfile --network-timeout 1000000)
-      cd apps/web
-      if [ -z "${DATABASE_URL}" ]; then
-        echo "DATABASE_URL is not set; skipping prisma migrate deploy."
-      else
-        npx prisma migrate deploy
-      fi
-      npx prisma generate
-      cd ../..
+      # Generate Prisma Client (doesn't require DATABASE_URL)
+      cd apps/web && npx prisma generate && cd ../..
+      # Build the application
       yarn build
 
     preDeployCommand: |
       cd apps/web
-      if [ -z "${DATABASE_URL}" ]; then
-        echo "DATABASE_URL is not set; skipping database setup."
-        exit 0
-      fi
+      # Run database migrations before deploying
       npx prisma migrate deploy
-      npx prisma db seed
+      # Seed database with initial data (only runs if seed script exists)
+      npx prisma db seed || echo "No seed script found or seeding failed (this is OK if DB is already seeded)"
 
     # Start command
     startCommand: |
