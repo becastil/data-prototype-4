@@ -14,26 +14,25 @@ services:
 
     # Build configuration
     buildCommand: |
-      npm ci
+      yarn install --frozen-lockfile
       cd apps/web
       npx prisma generate
-      npx prisma migrate deploy
-      npx prisma db seed
       cd ../..
-      npm run build --filter=@medical-reporting/web
+      yarn build
 
     preDeployCommand: |
       cd apps/web
       if [ -z "${DATABASE_URL}" ]; then
-        echo "DATABASE_URL is not set; skipping prisma migrate deploy."
+        echo "DATABASE_URL is not set; skipping database setup."
         exit 0
       fi
       npx prisma migrate deploy
+      npx prisma db seed
 
     # Start command
     startCommand: |
       cd apps/web
-      npm start
+      yarn start
 
     # Environment variables
     envVars:
