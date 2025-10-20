@@ -16,16 +16,6 @@ interface CsvRow {
   budgetedPremium: number;
 }
 
-interface HccRow {
-  claimantKey: string;
-  plan: string;
-  status: string;
-  primaryDiagnosis: string;
-  medicalPaid: number;
-  rxPaid: number;
-  totalPaid: number;
-}
-
 interface ValidationError {
   row: number;
   field: string;
@@ -103,7 +93,7 @@ function buildPlanLookup(plans: Plan[]): Record<string, Plan> {
  * Helper to normalize plan names from file type.
  * Converts lowercase file type identifiers to proper title case plan names.
  *
- * @param fileType - The file type string (e.g., "all plans", "hdhp", "ppo base")
+ * @param fileType - The file type string (currently always "all plans")
  * @param mappedRowPlan - Plan value from the CSV row itself (if present)
  * @returns Properly cased plan name
  */
@@ -275,7 +265,7 @@ async function saveMonthlyData(
  * - file: CSV/XLSX file
  * - clientId: UUID
  * - planYearId: UUID
- * - fileType: 'monthly' | 'hcc' | 'inputs'
+ * - fileType: 'all plans'
  */
 export async function POST(request: NextRequest) {
   try {
@@ -292,6 +282,16 @@ export async function POST(request: NextRequest) {
     if (!file || !clientId || !planYearId || !fileType) {
       return NextResponse.json(
         { error: 'file, clientId, planYearId, and fileType are required' },
+        { status: 400 }
+      );
+    }
+
+    const normalizedFileTypeKey = normalizePlanKey(fileType);
+    if (normalizedFileTypeKey !== 'allplans') {
+      return NextResponse.json(
+        {
+          error: 'Only the All Plans CSV template is supported. Please download the latest template and retry.'
+        },
         { status: 400 }
       );
     }
@@ -354,13 +354,10 @@ export async function POST(request: NextRequest) {
     });
 
     const monthlyRows: CsvRow[] = [];
-    const hccRows: HccRow[] = [];
     const errors: ValidationError[] = [];
 
     // Validate headers based on file type
-    const requiredHeaders = fileType === 'hcc'
-      ? ['claimant_key', 'plan', 'status', 'primary_diagnosis', 'medical_paid', 'rx_paid']
-      : ['month', 'subscribers', 'medical_paid', 'rx_paid', 'budgeted_premium'];
+    const requiredHeaders = ['month', 'plan', 'subscribers', 'medical_paid', 'rx_paid', 'budgeted_premium'];
 
     const missingHeaders = requiredHeaders.filter(h => !normalizedHeaders.includes(h));
     if (missingHeaders.length > 0) {
@@ -387,102 +384,43 @@ export async function POST(request: NextRequest) {
         mappedRow[mappedKey] = rawRow[key];
       });
 
-      // Validate based on file type
-      if (fileType === 'hcc') {
-        const claimantKey = (mappedRow.claimant_key ?? '').trim();
-        const plan = (mappedRow.plan ?? '').trim() || 'Unknown';
-        const status = (mappedRow.status ?? '').trim() || 'UNSPECIFIED';
-        const primaryDiagnosis = (mappedRow.primary_diagnosis ?? '').trim();
-
-        if (!claimantKey) {
-          errors.push({
-            row: i + 1,
-            field: 'claimant_key',
-            message: 'Claimant Key is required'
-          });
-        }
-
-        const medicalPaid = Number.parseFloat(mappedRow.medical_paid);
-        if (Number.isNaN(medicalPaid)) {
-          errors.push({
-            row: i + 1,
-            field: 'medical_paid',
-            message: `Invalid number: ${mappedRow.medical_paid}`
-          });
-        }
-
-        const rxPaid = Number.parseFloat(mappedRow.rx_paid);
-        if (Number.isNaN(rxPaid)) {
-          errors.push({
-            row: i + 1,
-            field: 'rx_paid',
-            message: `Invalid number: ${mappedRow.rx_paid}`
-          });
-        }
-
-        const totalPaidRaw = mappedRow.total_paid;
-        const totalPaid = totalPaidRaw !== undefined && totalPaidRaw !== ''
-          ? Number.parseFloat(totalPaidRaw)
-          : (Number.isNaN(medicalPaid) || Number.isNaN(rxPaid) ? NaN : medicalPaid + rxPaid);
-
-        if (Number.isNaN(totalPaid)) {
-          errors.push({
-            row: i + 1,
-            field: 'total_paid',
-            message: totalPaidRaw
-              ? `Invalid number: ${totalPaidRaw}`
-              : 'Unable to derive total paid from medical and rx values'
-          });
-        }
-
-        hccRows.push({
-          claimantKey,
-          plan,
-          status,
-          primaryDiagnosis,
-          medicalPaid: Number.isNaN(medicalPaid) ? 0 : medicalPaid,
-          rxPaid: Number.isNaN(rxPaid) ? 0 : rxPaid,
-          totalPaid: Number.isNaN(totalPaid) ? 0 : totalPaid
+      // Validate month format (YYYY-MM)
+      if (!/^\d{4}-\d{2}$/.test(mappedRow.month)) {
+        errors.push({
+          row: i + 1,
+          field: 'month',
+          message: `Invalid month format. Expected YYYY-MM, got ${mappedRow.month}`
         });
-      } else {
-        // Validate month format (YYYY-MM)
-        if (!/^\d{4}-\d{2}$/.test(mappedRow.month)) {
-          errors.push({
-            row: i + 1,
-            field: 'month',
-            message: `Invalid month format. Expected YYYY-MM, got ${mappedRow.month}`
-          });
-        }
-
-        // Validate numeric fields
-        const numericFields = ['subscribers', 'medical_paid', 'rx_paid', 'budgeted_premium'];
-        numericFields.forEach(field => {
-          const value = Number.parseFloat(mappedRow[field]);
-          if (Number.isNaN(value)) {
-            errors.push({
-              row: i + 1,
-              field,
-              message: `Invalid number: ${mappedRow[field]}`
-            });
-          }
-        });
-
-        // Parse the row - plan comes from CSV or defaults to normalized fileType
-        const parsedRow: CsvRow = {
-          month: mappedRow.month,
-          plan: normalizePlanName(fileType, mappedRow.plan),
-          subscribers: Number.parseInt(mappedRow.subscribers, 10) || 0,
-          medicalPaid: Number.parseFloat(mappedRow.medical_paid) || 0,
-          rxPaid: Number.parseFloat(mappedRow.rx_paid) || 0,
-          stopLossReimb: Number.parseFloat(mappedRow.stop_loss_reimb) || 0,
-          rxRebates: Number.parseFloat(mappedRow.rx_rebates) || 0,
-          adminFees: Number.parseFloat(mappedRow.admin_fees) || 0,
-          stopLossFees: Number.parseFloat(mappedRow.stop_loss_fees) || 0,
-          budgetedPremium: Number.parseFloat(mappedRow.budgeted_premium) || 0
-        };
-
-        monthlyRows.push(parsedRow);
       }
+
+      // Validate numeric fields
+      const numericFields = ['subscribers', 'medical_paid', 'rx_paid', 'budgeted_premium'];
+      numericFields.forEach(field => {
+        const value = Number.parseFloat(mappedRow[field]);
+        if (Number.isNaN(value)) {
+          errors.push({
+            row: i + 1,
+            field,
+            message: `Invalid number: ${mappedRow[field]}`
+          });
+        }
+      });
+
+      // Parse the row - plan comes from CSV or defaults to normalized fileType
+      const parsedRow: CsvRow = {
+        month: mappedRow.month,
+        plan: normalizePlanName(fileType, mappedRow.plan),
+        subscribers: Number.parseInt(mappedRow.subscribers, 10) || 0,
+        medicalPaid: Number.parseFloat(mappedRow.medical_paid) || 0,
+        rxPaid: Number.parseFloat(mappedRow.rx_paid) || 0,
+        stopLossReimb: Number.parseFloat(mappedRow.stop_loss_reimb) || 0,
+        rxRebates: Number.parseFloat(mappedRow.rx_rebates) || 0,
+        adminFees: Number.parseFloat(mappedRow.admin_fees) || 0,
+        stopLossFees: Number.parseFloat(mappedRow.stop_loss_fees) || 0,
+        budgetedPremium: Number.parseFloat(mappedRow.budgeted_premium) || 0
+      };
+
+      monthlyRows.push(parsedRow);
     }
 
     // Stop if there are validation errors
@@ -495,46 +433,6 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       );
-    }
-
-    if (fileType === 'hcc') {
-      const sampleRows = hccRows.slice(0, 5).map(row => ({
-        claimant_key: row.claimantKey,
-        plan: row.plan,
-        status: row.status,
-        primary_diagnosis: row.primaryDiagnosis,
-        medical_paid: row.medicalPaid,
-        rx_paid: row.rxPaid,
-        total_paid: row.totalPaid
-      }));
-
-      const responsePayload = {
-        success: true,
-        preview: {
-          rowCount: hccRows.length,
-          months: [] as string[],
-          plans: [...new Set(hccRows.map(r => r.plan))],
-          sampleRows
-        },
-        validation: {
-          dataRows: hccRows.length,
-          sumRowDetected: false,
-          sumValidationPassed: true
-        },
-        saved: false
-      };
-
-      if (previewMode) {
-        return NextResponse.json({
-          ...responsePayload,
-          message: 'HCC validation passed. Data not saved (preview mode).'
-        });
-      }
-
-      return NextResponse.json({
-        ...responsePayload,
-        message: 'HCC file validated successfully. Note: HCC data storage is not yet implemented.'
-      });
     }
 
     // Separate data rows from sum/total rows
@@ -553,7 +451,7 @@ export async function POST(request: NextRequest) {
 
     // Validate sum row if present
     const sumValidationErrors: string[] = [];
-    if (sumRow && fileType !== 'hcc') {
+    if (sumRow) {
       const tolerance = 1.0; // Allow $1 difference due to rounding
       const validatedSumRow: CsvRow = sumRow; // Type assertion for narrowing
 
@@ -614,58 +512,56 @@ export async function POST(request: NextRequest) {
     // Only run this check when file contains BOTH "All Plans" AND individual plan data
     const reconciliationErrors: string[] = [];
 
-    if (fileType !== 'hcc') {
-      const byMonth = dataRows.reduce((acc, row) => {
-        if (!acc[row.month]) {
-          acc[row.month] = { allPlans: null, plans: [] };
-        }
-
-        if (row.plan.toLowerCase() === 'all plans') {
-          acc[row.month].allPlans = row;
-        } else {
-          acc[row.month].plans.push(row);
-        }
-
-        return acc;
-      }, {} as Record<string, { allPlans: CsvRow | null; plans: CsvRow[] }>);
-
-      // Check if we have any individual plans in the data
-      const hasIndividualPlans = Object.values(byMonth).some(data => data.plans.length > 0);
-      const hasAllPlans = Object.values(byMonth).some(data => data.allPlans !== null);
-
-      // Only perform reconciliation if we have BOTH "All Plans" and individual plan data
-      if (hasAllPlans && hasIndividualPlans) {
-        Object.entries(byMonth).forEach(([month, data]) => {
-          if (!data.allPlans) {
-            reconciliationErrors.push(`Month ${month}: Missing "All Plans" row`);
-            return;
-          }
-
-          const sumMedical = data.plans.reduce((sum, p) => sum + p.medicalPaid, 0);
-          const sumRx = data.plans.reduce((sum, p) => sum + p.rxPaid, 0);
-          const sumBudget = data.plans.reduce((sum, p) => sum + p.budgetedPremium, 0);
-
-          const tolerance = 0.01;
-
-          if (Math.abs(sumMedical - data.allPlans.medicalPaid) > tolerance) {
-            reconciliationErrors.push(
-              `Month ${month}: Medical Paid mismatch. Sum of plans: $${sumMedical.toFixed(2)}, All Plans: $${data.allPlans.medicalPaid.toFixed(2)}`
-            );
-          }
-
-          if (Math.abs(sumRx - data.allPlans.rxPaid) > tolerance) {
-            reconciliationErrors.push(
-              `Month ${month}: Rx Paid mismatch. Sum of plans: $${sumRx.toFixed(2)}, All Plans: $${data.allPlans.rxPaid.toFixed(2)}`
-            );
-          }
-
-          if (Math.abs(sumBudget - data.allPlans.budgetedPremium) > tolerance) {
-            reconciliationErrors.push(
-              `Month ${month}: Budgeted Premium mismatch. Sum of plans: $${sumBudget.toFixed(2)}, All Plans: $${data.allPlans.budgetedPremium.toFixed(2)}`
-            );
-          }
-        });
+    const byMonth = dataRows.reduce((acc, row) => {
+      if (!acc[row.month]) {
+        acc[row.month] = { allPlans: null, plans: [] };
       }
+
+      if (row.plan.toLowerCase() === 'all plans') {
+        acc[row.month].allPlans = row;
+      } else {
+        acc[row.month].plans.push(row);
+      }
+
+      return acc;
+    }, {} as Record<string, { allPlans: CsvRow | null; plans: CsvRow[] }>);
+
+    // Check if we have any individual plans in the data
+    const hasIndividualPlans = Object.values(byMonth).some(data => data.plans.length > 0);
+    const hasAllPlans = Object.values(byMonth).some(data => data.allPlans !== null);
+
+    // Only perform reconciliation if we have BOTH "All Plans" and individual plan data
+    if (hasAllPlans && hasIndividualPlans) {
+      Object.entries(byMonth).forEach(([month, data]) => {
+        if (!data.allPlans) {
+          reconciliationErrors.push(`Month ${month}: Missing "All Plans" row`);
+          return;
+        }
+
+        const sumMedical = data.plans.reduce((sum, p) => sum + p.medicalPaid, 0);
+        const sumRx = data.plans.reduce((sum, p) => sum + p.rxPaid, 0);
+        const sumBudget = data.plans.reduce((sum, p) => sum + p.budgetedPremium, 0);
+
+        const tolerance = 0.01;
+
+        if (Math.abs(sumMedical - data.allPlans.medicalPaid) > tolerance) {
+          reconciliationErrors.push(
+            `Month ${month}: Medical Paid mismatch. Sum of plans: $${sumMedical.toFixed(2)}, All Plans: $${data.allPlans.medicalPaid.toFixed(2)}`
+          );
+        }
+
+        if (Math.abs(sumRx - data.allPlans.rxPaid) > tolerance) {
+          reconciliationErrors.push(
+            `Month ${month}: Rx Paid mismatch. Sum of plans: $${sumRx.toFixed(2)}, All Plans: $${data.allPlans.rxPaid.toFixed(2)}`
+          );
+        }
+
+        if (Math.abs(sumBudget - data.allPlans.budgetedPremium) > tolerance) {
+          reconciliationErrors.push(
+            `Month ${month}: Budgeted Premium mismatch. Sum of plans: $${sumBudget.toFixed(2)}, All Plans: $${data.allPlans.budgetedPremium.toFixed(2)}`
+          );
+        }
+      });
     }
 
     // Report sum validation errors if any

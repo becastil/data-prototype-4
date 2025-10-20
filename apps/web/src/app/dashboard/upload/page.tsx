@@ -12,7 +12,7 @@ import {
   Loader2,
 } from 'lucide-react';
 
-type FileType = 'all-plans' | 'hdhp' | 'ppo-base' | 'ppo-buyup' | 'high-claimants';
+type FileType = 'all-plans';
 
 type FileStatus = 'empty' | 'validating' | 'valid' | 'invalid' | 'imported';
 
@@ -26,20 +26,16 @@ interface FileSlot {
   previewError: UploadPreviewError | null;
 }
 
-const templates = [
-  { id: 'all-plans', name: 'All Plans Monthly', description: 'Aggregated monthly data across all plans' },
-  { id: 'hdhp', name: 'HDHP Monthly', description: 'High Deductible Health Plan monthly data' },
-  { id: 'ppo-base', name: 'PPO Base Monthly', description: 'PPO Base plan monthly data' },
-  { id: 'ppo-buyup', name: 'PPO Buy-Up Monthly', description: 'PPO Buy-Up plan monthly data' },
-  { id: 'high-claimants', name: 'High-Cost Claimants', description: 'Claimants exceeding 50% of ISL' },
+const templates: Array<{ id: FileType; name: string; description: string }> = [
+  {
+    id: 'all-plans',
+    name: 'All Plans Monthly',
+    description: 'Aggregated monthly data across every plan (single template upload)',
+  },
 ];
 
 const fileTypeToApiType: Record<FileType, string> = {
   'all-plans': 'all plans',
-  'hdhp': 'hdhp',
-  'ppo-base': 'ppo base',
-  'ppo-buyup': 'ppo buy-up',
-  'high-claimants': 'hcc',
 };
 
 interface UploadPreviewSuccess {
@@ -77,7 +73,7 @@ function UploadPageContent() {
   const clientId = searchParams.get('clientId') ?? DEFAULT_CLIENT_ID;
   const planYearId = searchParams.get('planYearId') ?? DEFAULT_PLAN_YEAR_ID;
 
-  // Initialize file slots for all 5 file types
+  // Initialize file slot for the single All Plans template
   const [fileSlots, setFileSlots] = useState<FileSlot[]>(
     templates.map(template => ({
       id: template.id as FileType,
@@ -235,7 +231,13 @@ function UploadPageContent() {
         ));
       }
 
-      setImportMessage(`Successfully imported ${results.length} file(s): ${results.join(', ')}`);
+      if (results.length > 0) {
+        const templateList = results.join(', ');
+        const message = results.length === 1
+          ? `Successfully imported the ${templateList} template`
+          : `Successfully imported ${results.length} templates: ${templateList}`;
+        setImportMessage(message);
+      }
       setImportError(null);
     } catch (error) {
       setImportError(
@@ -274,12 +276,12 @@ function UploadPageContent() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Upload Data</h1>
-          <p className="text-slate-400 mt-2">Import monthly claims and expense data - upload one or all file types</p>
+          <p className="text-slate-400 mt-2">Import monthly claims and expense data - upload the All Plans template CSV</p>
         </div>
         {fileCount.total > 0 && (
           <div className="text-sm">
             <span className="text-slate-400">Files selected: </span>
-            <span className="font-semibold text-accent-primary">{fileCount.total}/5</span>
+            <span className="font-semibold text-accent-primary">{fileCount.total}/{templates.length}</span>
             {fileCount.valid > 0 && (
               <span className="ml-3 text-status-green">
                 {fileCount.valid} valid

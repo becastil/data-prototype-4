@@ -22,6 +22,14 @@ services:
       cd ../..
       npm run build --filter=@medical-reporting/web
 
+    preDeployCommand: |
+      cd apps/web
+      if [ -z "${DATABASE_URL}" ]; then
+        echo "DATABASE_URL is not set; skipping prisma migrate deploy."
+        exit 0
+      fi
+      npx prisma migrate deploy
+
     # Start command
     startCommand: |
       cd apps/web
